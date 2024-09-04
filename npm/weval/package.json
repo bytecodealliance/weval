@@ -1,6 +1,6 @@
 {
   "name": "@cfallin/weval",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "description": "The WebAssembly partial evaluator",
   "type": "module",
   "scripts": {
