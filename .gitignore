@@ -4,3 +4,4 @@ target/
 *.wasm
 *.js
 cache.db
+**/package-lock.json
