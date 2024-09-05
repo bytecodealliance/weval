@@ -110,7 +110,8 @@ fn wizen(raw_bytes: Vec<u8>, preopens: Vec<PathBuf>, init_func: String) -> anyho
     w.run(&raw_bytes[..])
 }
 
-fn weval(
+/// Weval a wasm.
+pub fn weval(
     input_module: PathBuf,
     output_module: PathBuf,
     do_wizen: bool,
