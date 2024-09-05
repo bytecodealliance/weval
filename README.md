@@ -1,4 +1,24 @@
-## weval: the WebAssembly partial evaluator
+<div align="center">
+  <h1>wevale</h1>
+
+  <p>
+    <strong>weval Wasm partial evaluator</strong>
+  </p>
+
+  <strong>A <a href="https://bytecodealliance.org/">Bytecode Alliance</a> project</strong>
+
+  <p>
+    <a href="https://github.com/bytecodealliance/weval/actions?query=workflow%3ACI"><img src="https://github.com/bytecodealliance/weval/workflows/CI/badge.svg" alt="build status" /></a>
+    <a href="https://bytecodealliance.zulipchat.com/#narrow/stream/223391-wasm"><img src="https://img.shields.io/badge/zulip-join_chat-brightgreen.svg" alt="zulip chat" /></a>
+    <a href="https://docs.rs/weval"><img src="https://docs.rs/weval/badge.svg" alt="Documentation Status" /></a>
+  </p>
+
+  <h3>
+    <a href="https://github.com/bytecodealliance/weval/blob/main/CONTRIBUTING.md">Contributing</a>
+    <span> | </span>
+    <a href="https://bytecodealliance.zulipchat.com/#narrow/stream/223391-wasm">Chat</a>
+  </h3>
+</div>
 
 `weval` partially evaluates WebAssembly snapshots to turn interpreters into
 compilers (see [Futamura
