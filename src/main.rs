@@ -39,6 +39,10 @@ pub enum Command {
         #[structopt(long = "dir")]
         preopens: Vec<PathBuf>,
 
+        /// Name of the Wizer initialization function to call.
+        #[structopt(long = "init-func", default_value = "wizer.initialize")]
+        init_func: String,
+
         /// Cache file to use.
         #[structopt(long = "cache")]
         cache: Option<PathBuf>,
@@ -71,6 +75,7 @@ fn main() -> anyhow::Result<()> {
             output_module,
             wizen,
             preopens,
+            init_func,
             cache,
             cache_ro,
             show_stats,
@@ -81,6 +86,7 @@ fn main() -> anyhow::Result<()> {
             output_module,
             wizen,
             preopens,
+            init_func,
             cache,
             cache_ro,
             show_stats,
@@ -90,9 +96,10 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-fn wizen(raw_bytes: Vec<u8>, preopens: Vec<PathBuf>) -> anyhow::Result<Vec<u8>> {
+fn wizen(raw_bytes: Vec<u8>, preopens: Vec<PathBuf>, init_func: String) -> anyhow::Result<Vec<u8>> {
     let mut w = wizer::Wizer::new();
     w.allow_wasi(true)?;
+    w.init_func(init_func);
     w.inherit_env(true);
     for preopen in preopens {
         w.dir(&preopen);
@@ -108,6 +115,7 @@ fn weval(
     output_module: PathBuf,
     do_wizen: bool,
     preopens: Vec<PathBuf>,
+    init_func: String,
     cache: Option<PathBuf>,
     cache_ro: Option<PathBuf>,
     show_stats: bool,
@@ -135,7 +143,7 @@ fn weval(
         if verbose {
             eprintln!("Wizening the module with its input...");
         }
-        wizen(raw_bytes, preopens)?
+        wizen(raw_bytes, preopens, init_func)?
     } else {
         raw_bytes
     };
