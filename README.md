@@ -35,3 +35,16 @@ See the API in `include/weval.h` for more.
 - Tag as `v0.x.y` and push that tag.
 - `cargo publish` from the root.
 - `npm publish` from `npm/weval/`.
+
+### Further Details
+
+The theory behind weval is described in the author's blog post
+[here](https://cfallin.org/blog/2024/08/28/weval/), covering partial evaluation
+and Futumura projections as well as how weval's main transform works.
+
+### Uses
+
+weval is in use to provide ahead-of-time compilation of JavaScript by wevaling
+a build of the [SpiderMonkey](https://spidermonkey.dev) interpreter, providing
+3-5x speedups over the generic interpreter. Please let us know if you use it
+elsewhere!
