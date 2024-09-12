@@ -15,12 +15,21 @@ typedef struct weval_req_arg_t weval_req_arg_t;
 typedef struct weval_lookup_entry_t weval_lookup_entry_t;
 typedef struct weval_lookup_t weval_lookup_t;
 
+/*
+ * A weval "request": a record of a generic function and arguments,
+ * and a place to put a function pointer containing a version of that
+ * generic function specialized to those arguments.
+ *
+ * Note: the structure layout here is also hardcoded as a set of
+ * offsets in `src/directive.rs`, where we read instances of this
+ * struct from a snapshotted Wasm heap. Please keep both in sync!
+ */
 struct weval_req_t {
   weval_req_t* next;
   weval_req_t* prev;
   /* A user-provided ID of the weval'd function, for stability of
    * collected request bodies across relinkings: */
-  uint32_t func_id;
+  uint32_t user_id;
   uint32_t
       num_globals; /* how many globals to specialize (prepended to arg list)? */
   weval_func_t func;
@@ -185,7 +194,7 @@ uint64_t weval_pop_stack(uint64_t* ptr) WEVAL_WASM_IMPORT("pop.stack");
 /* Locals virtualization; locals are also flushed when the stack is
  * flushed */
 
-uint64_t weval_read_local(uint64_t* ptr, uint32_t index)
+uint64_t weval_read_local(const uint64_t* ptr, uint32_t index)
     WEVAL_WASM_IMPORT("read.local");
 void weval_write_local(uint64_t* ptr, uint32_t index, uint64_t value)
     WEVAL_WASM_IMPORT("write.local");

@@ -124,13 +124,12 @@ impl Rewrite {
         let mut out_code_section = wasm_encoder::CodeSection::new();
         let mut weval_globals = 0;
 
-        // Scan globals section once to count globals.
+        // Scan globals section once to count globals so that we know
+        // the indices of the new globals that we add.
         for payload in parser.clone().parse_all(module) {
             match payload? {
                 Payload::GlobalSection(globals) => {
-                    for _ in globals.into_iter() {
-                        weval_globals += 1;
-                    }
+                    weval_globals += globals.count();
                     break;
                 }
                 _ => {}
@@ -387,9 +386,10 @@ impl Rewrite {
 
                 Payload::CodeSectionEntry(code) => {
                     // Rewrite calls, ref.funcs, and return_calls
-                    // according to `func_remap`. (The latter two
-                    // become errors; intrinsics can only be used for
-                    // ordinary calls.)
+                    // according to `func_remap`. (`ref.func`s become
+                    // errors; intrinsics can only be used for calls,
+                    // as the functions don't actually exist at
+                    // runtime post-wevaling.)
 
                     let mut locals = vec![];
                     for local in code.get_locals_reader()? {

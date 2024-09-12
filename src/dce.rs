@@ -22,7 +22,41 @@ fn op_can_be_removed(op: &Operator) -> bool {
         | Operator::I64Load16S { .. }
         | Operator::I64Load16U { .. }
         | Operator::I64Load32S { .. }
-        | Operator::I64Load32U { .. } => true,
+        | Operator::I64Load32U { .. }
+        | Operator::V128Load { .. }
+        | Operator::V128Load8x8S { .. }
+        | Operator::V128Load8x8U { .. }
+        | Operator::V128Load16x4S { .. }
+        | Operator::V128Load16x4U { .. }
+        | Operator::V128Load32x2S { .. }
+        | Operator::V128Load32x2U { .. }
+        | Operator::V128Load8Lane { .. }
+        | Operator::V128Load8Splat { .. }
+        | Operator::V128Load16Lane { .. }
+        | Operator::V128Load16Splat { .. }
+        | Operator::V128Load32Lane { .. }
+        | Operator::V128Load32Splat { .. }
+        | Operator::V128Load32Zero { .. }
+        | Operator::V128Load64Lane { .. }
+        | Operator::V128Load64Splat { .. }
+        | Operator::V128Load64Zero { .. } => true,
+        Operator::I32DivS
+        | Operator::I32DivU
+        | Operator::I32RemS
+        | Operator::I32RemU
+        | Operator::I64DivS
+        | Operator::I64DivU
+        | Operator::I64RemS
+        | Operator::I64RemU => true,
+        Operator::I32TruncF32S
+        | Operator::I32TruncF32U
+        | Operator::I32TruncF64S
+        | Operator::I32TruncF64U
+        | Operator::I64TruncF32S
+        | Operator::I64TruncF32U
+        | Operator::I64TruncF64S
+        | Operator::I64TruncF64U => true,
+        Operator::TableSize { .. } | Operator::MemorySize { .. } => true,
         Operator::GlobalGet { .. } | Operator::TableGet { .. } => true,
         op if op.is_pure() => true,
         _ => false,
