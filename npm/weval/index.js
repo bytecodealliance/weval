@@ -10,7 +10,7 @@ import decompressTar from 'decompress-tar';
 import xz from '@napi-rs/lzma/xz';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const TAG = "v0.2.14";
+const TAG = "v0.3.0";
 
 async function getWeval() {
     const knownPlatforms = {
@@ -27,7 +27,7 @@ async function getWeval() {
       if (platformKey in knownPlatforms) {
         return knownPlatforms[platformKey];
       }
-      throw new Error(`Unsupported platform: "${platformKey}". "weval does not have a precompiled binary for the platform/architecture you are using. You can open an issue on https://github.com/cfallin/weval/issues to request for your platform/architecture to be included."`);
+      throw new Error(`Unsupported platform: "${platformKey}". "weval does not have a precompiled binary for the platform/architecture you are using. You can open an issue on https://github.com/bytecodealliance/weval/issues to request for your platform/architecture to be included."`);
     }
 
     async function getJSON(url) {
@@ -49,7 +49,7 @@ async function getWeval() {
     if (!existsSync(exe)) {
         await mkdir(exeDir, { recursive: true });
 
-        let repoBaseURL = `https://api.github.com/repos/cfallin/weval`;
+        let repoBaseURL = `https://api.github.com/repos/bytecodealliance/weval`;
         let response = await getJSON(`${repoBaseURL}/releases/tags/${TAG}`);
         let id = response.id;
         let assets = await getJSON(`${repoBaseURL}/releases/${id}/assets`);
