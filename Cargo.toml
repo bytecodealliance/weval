@@ -1,7 +1,7 @@
 [package]
 name = "weval"
 description = "The WebAssembly partial evaluator"
-repository = "https://github.com/cfallin/weval"
+repository = "https://github.com/bytecodealliance/weval"
 version = "0.2.14"
 authors = ["Chris Fallin <chris@cfallin.org>"]
 license = "Apache-2.0 WITH LLVM-exception"

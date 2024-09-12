@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>wevale</h1>
+  <h1>weval</h1>
 
   <p>
     <strong>weval Wasm partial evaluator</strong>
