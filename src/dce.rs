@@ -1,7 +1,9 @@
 //! Dead-code elimination pass.
 
 use fxhash::FxHashSet;
-use waffle::{cfg::CFGInfo, Block, FunctionBody, Operator, Terminator, Value, ValueDef};
+use waffle::{
+    cfg::CFGInfo, Block, FunctionBody, Operator, SideEffect, Terminator, Value, ValueDef,
+};
 
 fn op_can_be_removed(op: &Operator) -> bool {
     // Pure ops, and also we allow loads and table.gets to be removed
@@ -11,53 +13,21 @@ fn op_can_be_removed(op: &Operator) -> bool {
     // unused (they technically have a read side-effect but really
     // should be considered pure).
     match op {
-        Operator::I32Load { .. }
-        | Operator::I32Load8S { .. }
-        | Operator::I32Load8U { .. }
-        | Operator::I32Load16S { .. }
-        | Operator::I32Load16U { .. }
-        | Operator::I64Load { .. }
-        | Operator::I64Load8S { .. }
-        | Operator::I64Load8U { .. }
-        | Operator::I64Load16S { .. }
-        | Operator::I64Load16U { .. }
-        | Operator::I64Load32S { .. }
-        | Operator::I64Load32U { .. }
-        | Operator::V128Load { .. }
-        | Operator::V128Load8x8S { .. }
-        | Operator::V128Load8x8U { .. }
-        | Operator::V128Load16x4S { .. }
-        | Operator::V128Load16x4U { .. }
-        | Operator::V128Load32x2S { .. }
-        | Operator::V128Load32x2U { .. }
-        | Operator::V128Load8Lane { .. }
-        | Operator::V128Load8Splat { .. }
-        | Operator::V128Load16Lane { .. }
-        | Operator::V128Load16Splat { .. }
-        | Operator::V128Load32Lane { .. }
-        | Operator::V128Load32Splat { .. }
-        | Operator::V128Load32Zero { .. }
-        | Operator::V128Load64Lane { .. }
-        | Operator::V128Load64Splat { .. }
-        | Operator::V128Load64Zero { .. } => true,
-        Operator::I32DivS
-        | Operator::I32DivU
-        | Operator::I32RemS
-        | Operator::I32RemU
-        | Operator::I64DivS
-        | Operator::I64DivU
-        | Operator::I64RemS
-        | Operator::I64RemU => true,
-        Operator::I32TruncF32S
-        | Operator::I32TruncF32U
-        | Operator::I32TruncF64S
-        | Operator::I32TruncF64U
-        | Operator::I64TruncF32S
-        | Operator::I64TruncF32U
-        | Operator::I64TruncF64S
-        | Operator::I64TruncF64U => true,
+        // If a load is unused, we can remove it because we're assuming
+        // the program doesn't trap (so we don't need to preserve traps
+        // due to out-of- bounds addresses).
+        op if op.is_load() => true,
+        // If the *only* side-effect is a possible trap, we can remove
+        // the op if otherwise unused, because we're assuming the
+        // program doesn't trap.
+        op if op.effects() == &[SideEffect::Trap] => true,
+        // `table.size` and `memory.size` technically access state
+        // tracked via side-effects, but can otherwise be removed if
+        // unused. Likewise for table element and global accesses.
         Operator::TableSize { .. } | Operator::MemorySize { .. } => true,
         Operator::GlobalGet { .. } | Operator::TableGet { .. } => true,
+        // Finally, all pure ops (computation only, no accesses to
+        // ambient state and no side-effects) can be removed if unused.
         op if op.is_pure() => true,
         _ => false,
     }

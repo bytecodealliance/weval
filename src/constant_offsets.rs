@@ -5,8 +5,8 @@
 use fxhash::{FxHashMap, FxHashSet};
 use std::collections::{BTreeMap, VecDeque};
 use waffle::{
-    cfg::CFGInfo, entity::PerEntity, pool::ListRef, Block, FunctionBody, MemoryArg, Operator,
-    Terminator, Type, Value, ValueDef,
+    cfg::CFGInfo, entity::PerEntity, pool::ListRef, Block, FunctionBody, Operator, Terminator,
+    Type, Value, ValueDef,
 };
 
 /// Dataflow analysis lattice: a value is either some original SSA
@@ -34,56 +34,6 @@ impl AbsValue {
             (x, Top) | (Top, x) => x,
             _ => Bottom,
         }
-    }
-}
-
-fn is_load_or_store(op: &Operator) -> bool {
-    match op {
-        Operator::I32Load { .. }
-        | Operator::I32Load8S { .. }
-        | Operator::I32Load8U { .. }
-        | Operator::I32Load16S { .. }
-        | Operator::I32Load16U { .. }
-        | Operator::I64Load { .. }
-        | Operator::I64Load8S { .. }
-        | Operator::I64Load8U { .. }
-        | Operator::I64Load16S { .. }
-        | Operator::I64Load16U { .. }
-        | Operator::I64Load32S { .. }
-        | Operator::I64Load32U { .. } => true,
-        Operator::I32Store { .. }
-        | Operator::I32Store8 { .. }
-        | Operator::I32Store16 { .. }
-        | Operator::I64Store { .. }
-        | Operator::I64Store8 { .. }
-        | Operator::I64Store16 { .. }
-        | Operator::I64Store32 { .. } => true,
-        _ => false,
-    }
-}
-
-fn update_load_or_store_memarg<F: Fn(&mut MemoryArg)>(op: &mut Operator, f: F) {
-    match op {
-        Operator::I32Load { memory }
-        | Operator::I32Load8S { memory }
-        | Operator::I32Load8U { memory }
-        | Operator::I32Load16S { memory }
-        | Operator::I32Load16U { memory }
-        | Operator::I64Load { memory }
-        | Operator::I64Load8S { memory }
-        | Operator::I64Load8U { memory }
-        | Operator::I64Load16S { memory }
-        | Operator::I64Load16U { memory }
-        | Operator::I64Load32S { memory }
-        | Operator::I64Load32U { memory }
-        | Operator::I32Store { memory }
-        | Operator::I32Store8 { memory }
-        | Operator::I32Store16 { memory }
-        | Operator::I64Store { memory }
-        | Operator::I64Store8 { memory }
-        | Operator::I64Store16 { memory }
-        | Operator::I64Store32 { memory } => f(memory),
-        _ => {}
     }
 }
 
@@ -235,7 +185,7 @@ pub fn run(func: &mut FunctionBody, cfg: &CFGInfo) {
     let mut used_as_addr = FxHashSet::default();
     for (_, def) in func.values.entries() {
         if let ValueDef::Operator(op, args, _) = def {
-            if is_load_or_store(op) {
+            if op.is_load() || op.is_store() {
                 used_as_addr.insert(func.arg_pool[*args][0]);
             }
         }
@@ -311,7 +261,7 @@ pub fn run(func: &mut FunctionBody, cfg: &CFGInfo) {
 
             // Handle loads/stores.
             if let ValueDef::Operator(op, args, tys) = &func.values[inst] {
-                if is_load_or_store(op) {
+                if op.is_load() || op.is_store() {
                     let args = &func.arg_pool[*args];
                     let tys = *tys;
                     let addr = args[0];
@@ -327,7 +277,7 @@ pub fn run(func: &mut FunctionBody, cfg: &CFGInfo) {
                         let offset = *min_offset_from.get(&base).unwrap();
                         assert!(offset <= 0);
                         let addend = (-offset) as u32;
-                        update_load_or_store_memarg(&mut op, |memory| {
+                        op.update_memory_arg(|memory| {
                             memory.offset =
                                 memory.offset.wrapping_add(addend).wrapping_add(this_offset)
                         });
