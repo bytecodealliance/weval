@@ -4,4 +4,5 @@ target/
 *.wasm
 *.js
 cache.db
-**/package-lock.json
+npm/weval/package-lock.json
+**/node_modules
