@@ -10,7 +10,7 @@ import decompressTar from 'decompress-tar';
 import xz from '@napi-rs/lzma/xz';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const TAG = "v0.3.1";
+const TAG = "v0.3.2";
 
 async function getWeval() {
     const knownPlatforms = {

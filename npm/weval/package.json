@@ -1,6 +1,6 @@
 {
   "name": "@bytecodealliance/weval",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "The WebAssembly partial evaluator",
   "type": "module",
   "scripts": {
@@ -19,10 +19,10 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cfallin/weval.git"
+    "url": "git+https://github.com/bytecodealliance/weval.git"
   },
   "bugs": {
-    "url": "https://github.com/cfallin/weval/issues"
+    "url": "https://github.com/bytecodealliance/weval/issues"
   },
-  "homepage": "https://github.com/cfallin/weval#readme"
+  "homepage": "https://github.com/bytecodealliance/weval#readme"
 }
