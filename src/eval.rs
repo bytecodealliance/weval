@@ -1742,7 +1742,7 @@ impl<'a> Evaluator<'a> {
                 })))
             }
             (Operator::I64Eqz, AbstractValue::Concrete(WasmVal::I64(k))) => {
-                Ok(AbstractValue::Concrete(WasmVal::I64(if *k == 0 {
+                Ok(AbstractValue::Concrete(WasmVal::I32(if *k == 0 {
                     1
                 } else {
                     0
@@ -1951,50 +1951,50 @@ impl<'a> Evaluator<'a> {
 
                     // 64-bit comparisons.
                     (Operator::I64Eq, WasmVal::I64(k1), WasmVal::I64(k2)) => {
-                        AbstractValue::Concrete(WasmVal::I64(if k1 == k2 { 1 } else { 0 }))
+                        AbstractValue::Concrete(WasmVal::I32(if k1 == k2 { 1 } else { 0 }))
                     }
                     (Operator::I64Ne, WasmVal::I64(k1), WasmVal::I64(k2)) => {
-                        AbstractValue::Concrete(WasmVal::I64(if k1 != k2 { 1 } else { 0 }))
+                        AbstractValue::Concrete(WasmVal::I32(if k1 != k2 { 1 } else { 0 }))
                     }
                     (Operator::I64LtS, WasmVal::I64(k1), WasmVal::I64(k2)) => {
-                        AbstractValue::Concrete(WasmVal::I64(if (*k1 as i64) < (*k2 as i64) {
+                        AbstractValue::Concrete(WasmVal::I32(if (*k1 as i64) < (*k2 as i64) {
                             1
                         } else {
                             0
                         }))
                     }
                     (Operator::I64LtU, WasmVal::I64(k1), WasmVal::I64(k2)) => {
-                        AbstractValue::Concrete(WasmVal::I64(if k1 < k2 { 1 } else { 0 }))
+                        AbstractValue::Concrete(WasmVal::I32(if k1 < k2 { 1 } else { 0 }))
                     }
                     (Operator::I64GtS, WasmVal::I64(k1), WasmVal::I64(k2)) => {
-                        AbstractValue::Concrete(WasmVal::I64(if (*k1 as i64) > (*k2 as i64) {
+                        AbstractValue::Concrete(WasmVal::I32(if (*k1 as i64) > (*k2 as i64) {
                             1
                         } else {
                             0
                         }))
                     }
                     (Operator::I64GtU, WasmVal::I64(k1), WasmVal::I64(k2)) => {
-                        AbstractValue::Concrete(WasmVal::I64(if k1 > k2 { 1 } else { 0 }))
+                        AbstractValue::Concrete(WasmVal::I32(if k1 > k2 { 1 } else { 0 }))
                     }
                     (Operator::I64LeS, WasmVal::I64(k1), WasmVal::I64(k2)) => {
-                        AbstractValue::Concrete(WasmVal::I64(if (*k1 as i64) <= (*k2 as i64) {
+                        AbstractValue::Concrete(WasmVal::I32(if (*k1 as i64) <= (*k2 as i64) {
                             1
                         } else {
                             0
                         }))
                     }
                     (Operator::I64LeU, WasmVal::I64(k1), WasmVal::I64(k2)) => {
-                        AbstractValue::Concrete(WasmVal::I64(if k1 <= k2 { 1 } else { 0 }))
+                        AbstractValue::Concrete(WasmVal::I32(if k1 <= k2 { 1 } else { 0 }))
                     }
                     (Operator::I64GeS, WasmVal::I64(k1), WasmVal::I64(k2)) => {
-                        AbstractValue::Concrete(WasmVal::I64(if (*k1 as i64) >= (*k2 as i64) {
+                        AbstractValue::Concrete(WasmVal::I32(if (*k1 as i64) >= (*k2 as i64) {
                             1
                         } else {
                             0
                         }))
                     }
                     (Operator::I64GeU, WasmVal::I64(k1), WasmVal::I64(k2)) => {
-                        AbstractValue::Concrete(WasmVal::I64(if k1 >= k2 { 1 } else { 0 }))
+                        AbstractValue::Concrete(WasmVal::I32(if k1 >= k2 { 1 } else { 0 }))
                     }
 
                     // 32-bit integer arithmetic.
