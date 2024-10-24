@@ -2,6 +2,7 @@
 #include <wizer.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <assert.h>
 
 WIZER_DEFAULT_INIT();
 WEVAL_DEFINE_GLOBALS();
@@ -37,7 +38,7 @@ struct State {
 };
 
 template<bool Specialized>
-bool Interpret(const Inst* insts, uint32_t ninsts, State* state) {
+uint32_t Interpret(const Inst* insts, uint32_t ninsts, State* state) {
     uint32_t pc = 0;
     uint32_t steps = 0;
     uint32_t* opstack = state->opstack;
@@ -57,67 +58,67 @@ bool Interpret(const Inst* insts, uint32_t ninsts, State* state) {
         switch (inst->opcode) {
             case PushConst:
                 if (sp + 1 > OPSTACK_SIZE) {
-                    return false;
+                    return 0;
                 }
                 opstack[sp++] = inst->imm;
                 break;
             case Drop:
                 if (sp == 0) {
-                    return false;
+                    return 0;
                 }
                 sp--;
                 break;
             case Dup:
                 if (sp + 1 > OPSTACK_SIZE) {
-                    return false;
+                    return 0;
                 }
                 if (sp == 0) {
-                    return false;
+                    return 0;
                 }
                 opstack[sp] = opstack[sp - 1];
                 sp++;
                 break;
             case GetLocal:
                 if (sp + 1 > OPSTACK_SIZE) {
-                    return false;
+                    return 0;
                 }
                 if (inst->imm >= LOCAL_SIZE) {
-                    return false;
+                    return 0;
                 }
                 opstack[sp++] = locals[inst->imm];
                 break;
             case SetLocal:
                 if (sp == 0) {
-                    return false;
+                    return 0;
                 }
                 if (inst->imm >= LOCAL_SIZE) {
-                    return false;
+                    return 0;
                 }
                 locals[inst->imm] = opstack[--sp];
                 break;
             case Add:
                 if (sp < 2) {
-                    return false;
+                    return 0;
                 }
                 opstack[sp - 2] += opstack[sp - 1];
                 sp--;
                 break;
             case Sub:
                 if (sp < 2) {
-                    return false;
+                    return 0;
                 }
                 opstack[sp - 2] -= opstack[sp - 1];
                 sp--;
                 break;
             case Print:
                 if (sp == 0) {
-                    return false;
+                    return 0;
                 }
                 printf("%u\n", opstack[--sp]);
                 break;
             case Goto:
                 if (inst->imm >= ninsts) {
-                    return false;
+                    return 0;
                 }
                 pc = inst->imm;
                 if (Specialized) {
@@ -126,10 +127,10 @@ bool Interpret(const Inst* insts, uint32_t ninsts, State* state) {
                 break;
             case GotoIf:
                 if (sp == 0) {
-                    return false;
+                    return 0;
                 }
                 if (inst->imm >= ninsts) {
-                    return false;
+                    return 0;
                 }
                 sp--;
                 if (opstack[sp] != 0) {
@@ -150,13 +151,14 @@ out:
     }
 
     printf("Exiting after %d steps at PC %d.\n", steps, pc);
-    return true;
+    return steps;
 }
 
+static const uint32_t kIters = 10000000;
 Inst prog[] = {
     Inst(PushConst, 0),
     Inst(Dup),
-    Inst(PushConst, 10000000),
+    Inst(PushConst, kIters),
     Inst(Sub),
     Inst(GotoIf, 6),
     Inst(Exit),
@@ -164,8 +166,9 @@ Inst prog[] = {
     Inst(Add),
     Inst(Goto, 1),
 };
+static const uint32_t kExpectedSteps = 7*kIters + 6;
 
-typedef bool (*InterpretFunc)(const Inst* insts, uint32_t ninsts, State* state);
+typedef uint32_t (*InterpretFunc)(const Inst* insts, uint32_t ninsts, State* state);
 
 WEVAL_DEFINE_TARGET(1, Interpret<true>);
 
@@ -177,7 +180,7 @@ struct Func {
     Func(const Inst* insts_, uint32_t ninsts_)
         : insts(insts_), ninsts(ninsts_), specialized(nullptr) {
         printf("ctor: ptr %p\n", &specialized);
-        weval::weval(
+        auto* req = weval::weval(
                 &specialized,
                 &Interpret<true>,
                 1,
@@ -185,9 +188,10 @@ struct Func {
                 weval::SpecializeMemory<const Inst*>(insts, ninsts * sizeof(Inst)),
                 weval::Specialize(ninsts),
                 weval::Runtime<State*>());
+        assert(req);
     }
 
-    bool invoke(State* state) {
+    uint32_t invoke(State* state) {
         printf("Inspecting func ptr at: %p -> %p (size %lu)\n", &specialized, specialized, sizeof(specialized));
         if (specialized) {
             printf("Calling specialized function: %p\n", specialized);
@@ -201,6 +205,7 @@ Func prog_func(prog, sizeof(prog)/sizeof(Inst));
 
 int main(int argc, char** argv) {
     State* state = (State*)calloc(sizeof(State), 1);
-    prog_func.invoke(state);
+    uint32_t steps = prog_func.invoke(state);
+    assert(kExpectedSteps == steps);
     fflush(stdout);
 }

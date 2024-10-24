@@ -32,14 +32,13 @@ jobs:
   smoke-test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Download and install wasi-sdk
       run: |
         cd /opt
         wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-24/wasi-sdk-24.0-x86_64-linux.tar.gz
         tar zxvf wasi-sdk-24.0-x86_64-linux.tar.gz
         ln -s wasi-sdk-24.0-x86_64-linux wasi-sdk
-        ls /opt/wasi-sdk
     - name: Download and install wasmtime
       run: |
         cd /opt
