@@ -12,8 +12,6 @@ typedef void (*weval_func_t)();
 
 typedef struct weval_req_t weval_req_t;
 typedef struct weval_req_arg_t weval_req_arg_t;
-typedef struct weval_lookup_entry_t weval_lookup_entry_t;
-typedef struct weval_lookup_t weval_lookup_t;
 
 /*
  * A weval "request": a record of a generic function and arguments,
@@ -68,22 +66,8 @@ struct weval_req_arg_t {
   } u;
 };
 
-/* Lookup table created by weval for pre-inserted wevaled function bodies */
-struct weval_lookup_t {
-  weval_lookup_entry_t* entries;
-  uint32_t nentries;
-};
-
-struct weval_lookup_entry_t {
-  uint32_t func_id;
-  const uint8_t* argbuf;
-  uint32_t arglen;
-  weval_func_t specialized;
-};
-
 extern weval_req_t* weval_req_pending_head;
 extern bool weval_is_wevaled;
-extern weval_lookup_t weval_lookup_table;
 
 #define WEVAL_DEFINE_GLOBALS()                                          \
   weval_req_t* weval_req_pending_head;                                  \
@@ -472,7 +456,6 @@ weval_req_t* weval(impl::FuncPtr<Ret, Args...>* dest,
     return nullptr;
   }
 
-  req->func_id = func_id;
   req->num_globals = num_globals;
   req->func = (weval_func_t)generic;
   req->arglen = writer.len;
