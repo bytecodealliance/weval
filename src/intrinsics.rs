@@ -28,8 +28,18 @@ pub(crate) struct Intrinsics {
 impl Intrinsics {
     pub(crate) fn find(module: &Module) -> Intrinsics {
         Intrinsics {
-            read_reg: find_imported_intrinsic(module, "read.reg", &[Type::I64], &[Type::I64]),
-            write_reg: find_imported_intrinsic(module, "write.reg", &[Type::I64, Type::I64], &[]),
+            read_reg: find_imported_intrinsic(
+                module,
+                "read.reg",
+                &[Type::I64],
+                &[Type::I64, Type::I32],
+            ),
+            write_reg: find_imported_intrinsic(
+                module,
+                "write.reg",
+                &[Type::I64, Type::I32, Type::I64],
+                &[],
+            ),
             push_context: find_imported_intrinsic(module, "push.context", &[Type::I32], &[]),
             pop_context: find_imported_intrinsic(module, "pop.context", &[], &[]),
             update_context: find_imported_intrinsic(module, "update.context", &[Type::I32], &[]),

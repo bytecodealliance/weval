@@ -133,8 +133,9 @@ extern "C" {
 void weval_push_context(uint32_t pc) WEVAL_WASM_IMPORT("push.context");
 void weval_pop_context() WEVAL_WASM_IMPORT("pop.context");
 void weval_update_context(uint32_t pc) WEVAL_WASM_IMPORT("update.context");
-uint64_t weval_read_reg(uint64_t idx) WEVAL_WASM_IMPORT("read.reg");
-void weval_write_reg(uint64_t idx, uint64_t value)
+uint64_t weval_read_reg(uint64_t idx, uint64_t* slot)
+    WEVAL_WASM_IMPORT("read.reg");
+void weval_write_reg(uint64_t idx, uint64_t* slot, uint64_t value)
     WEVAL_WASM_IMPORT("write.reg");
 uint32_t weval_specialize_value(uint32_t value, uint32_t lo, uint32_t hi)
     WEVAL_WASM_IMPORT("specialize.value");
@@ -166,10 +167,10 @@ void weval_sync_stack() WEVAL_WASM_IMPORT("sync.stack");
 /* Read an entry from the virtual stack if available (index 0 is
  * just-pushed, 1 is one push before that, etc.) Loads from the
  * pointer if that index is not available. */
-uint64_t weval_read_stack(uint64_t* ptr, uint32_t index)
+uint64_t weval_read_stack(uint32_t index, uint64_t* ptr)
     WEVAL_WASM_IMPORT("read.stack");
 /* Write an entry at an existing stack index */
-void weval_write_stack(uint64_t* ptr, uint32_t index, uint64_t value)
+void weval_write_stack(uint32_t index, uint64_t* ptr, uint64_t value)
     WEVAL_WASM_IMPORT("write.stack");
 /* Pops an entry from the stack, canceling its store if any (the
  * effect never occurs). */
@@ -178,9 +179,9 @@ uint64_t weval_pop_stack(uint64_t* ptr) WEVAL_WASM_IMPORT("pop.stack");
 /* Locals virtualization; locals are also flushed when the stack is
  * flushed */
 
-uint64_t weval_read_local(const uint64_t* ptr, uint32_t index)
+uint64_t weval_read_local(uint32_t index, const uint64_t* ptr)
     WEVAL_WASM_IMPORT("read.local");
-void weval_write_local(uint64_t* ptr, uint32_t index, uint64_t value)
+void weval_write_local(uint32_t index, uint64_t* ptr, uint64_t value)
     WEVAL_WASM_IMPORT("write.local");
 
 /* Debugging and stats intrinsics */

@@ -1414,6 +1414,7 @@ impl<'a> Evaluator<'a> {
                     );
                     EvalResult::Alias(state, value)
                 } else if Some(function_index) == self.intrinsics.push_stack {
+                    // push_stack(ptr, value)
                     let stackptr = self.func.arg_pool[values][0];
                     let value = self.func.arg_pool[values][1];
                     log::trace!(
@@ -1440,6 +1441,7 @@ impl<'a> Evaluator<'a> {
                     self.stats.virtstack_writes += 1;
                     EvalResult::Elide
                 } else if Some(function_index) == self.intrinsics.pop_stack {
+                    // pop_stack(ptr)
                     log::trace!("pop_stack: current stack is {:?}", state.flow.stack);
                     self.stats.virtstack_reads += 1;
                     if state.flow.stack.len() > 0 {
@@ -1455,7 +1457,7 @@ impl<'a> Evaluator<'a> {
                             new_block,
                             Operator::I64Load {
                                 memory: MemoryArg {
-                                    align: 1,
+                                    align: 0,
                                     offset: 0,
                                     memory: self.image.main_heap().unwrap(),
                                 },
@@ -1467,7 +1469,8 @@ impl<'a> Evaluator<'a> {
                         EvalResult::Alias(AbstractValue::Runtime(None), load)
                     }
                 } else if Some(function_index) == self.intrinsics.read_stack {
-                    let idx = abs[1].as_const_u32().unwrap();
+                    // read_stack(index, ptr)
+                    let idx = abs[0].as_const_u32().unwrap();
                     log::trace!(
                         "read_stack: index {}, current stack is {:?}",
                         idx,
@@ -1481,12 +1484,12 @@ impl<'a> Evaluator<'a> {
                         };
                         EvalResult::Alias(abs, value)
                     } else {
-                        let ptr = self.func.arg_pool[values][0];
+                        let ptr = self.func.arg_pool[values][1];
                         let load = self.func.add_op(
                             new_block,
                             Operator::I64Load {
                                 memory: MemoryArg {
-                                    align: 1,
+                                    align: 0,
                                     offset: 0,
                                     memory: self.image.main_heap().unwrap(),
                                 },
@@ -1498,8 +1501,9 @@ impl<'a> Evaluator<'a> {
                         EvalResult::Alias(AbstractValue::Runtime(None), load)
                     }
                 } else if Some(function_index) == self.intrinsics.write_stack {
-                    let stackptr = self.func.arg_pool[values][0];
-                    let idx = abs[1].as_const_u32().unwrap();
+                    // write_stack(index, ptr, value)
+                    let idx = abs[0].as_const_u32().unwrap();
+                    let stackptr = self.func.arg_pool[values][1];
                     let value = self.func.arg_pool[values][2];
                     log::trace!(
                         "write_stack: index {}, value {}, current stack is {:?}",
@@ -1509,7 +1513,7 @@ impl<'a> Evaluator<'a> {
                     );
                     let addr_value = RegValue::Value {
                         data: stackptr,
-                        abs: abs[0].clone(),
+                        abs: abs[1].clone(),
                         ty: Type::I32,
                     };
                     let data_value = RegValue::Value {
@@ -1529,7 +1533,7 @@ impl<'a> Evaluator<'a> {
                             new_block,
                             Operator::I64Store {
                                 memory: MemoryArg {
-                                    align: 1,
+                                    align: 0,
                                     offset: 0,
                                     memory: self.image.main_heap().unwrap(),
                                 },
@@ -1541,6 +1545,7 @@ impl<'a> Evaluator<'a> {
                     }
                     EvalResult::Elide
                 } else if Some(function_index) == self.intrinsics.sync_stack {
+                    // sync_stack()
                     log::trace!("sync_stack current stack is {:?}", state.flow.stack);
 
                     for (addr, data) in state.flow.stack.drain(..) {
@@ -1551,7 +1556,7 @@ impl<'a> Evaluator<'a> {
                             new_block,
                             Operator::I64Store {
                                 memory: MemoryArg {
-                                    align: 1,
+                                    align: 0,
                                     offset: 0,
                                     memory: self.image.main_heap().unwrap(),
                                 },
@@ -1570,7 +1575,7 @@ impl<'a> Evaluator<'a> {
                             new_block,
                             Operator::I64Store {
                                 memory: MemoryArg {
-                                    align: 1,
+                                    align: 0,
                                     offset: 0,
                                     memory: self.image.main_heap().unwrap(),
                                 },
@@ -1582,16 +1587,17 @@ impl<'a> Evaluator<'a> {
                     }
                     EvalResult::Elide
                 } else if Some(function_index) == self.intrinsics.read_local {
+                    // read_local(index, ptr)
                     self.stats.local_reads += 1;
-                    let ptr = self.func.arg_pool[values][0];
-                    let idx = abs[1].as_const_u32().unwrap();
+                    let idx = abs[0].as_const_u32().unwrap();
+                    let ptr = self.func.arg_pool[values][1];
                     match state.flow.locals.get(&idx) {
                         None => {
                             let load = self.func.add_op(
                                 new_block,
                                 Operator::I64Load {
                                     memory: MemoryArg {
-                                        align: 1,
+                                        align: 0,
                                         offset: 0,
                                         memory: self.image.main_heap().unwrap(),
                                     },
@@ -1608,16 +1614,17 @@ impl<'a> Evaluator<'a> {
                         _ => unreachable!(),
                     }
                 } else if Some(function_index) == self.intrinsics.write_local {
+                    // write_local(index, ptr, value)
                     self.stats.local_writes += 1;
-                    let ptr = self.func.arg_pool[values][0];
-                    let idx = abs[1].as_const_u32().unwrap();
+                    let idx = abs[0].as_const_u32().unwrap();
+                    let ptr = self.func.arg_pool[values][1];
                     let data = self.func.arg_pool[values][2];
                     state.flow.locals.insert(
                         idx,
                         (
                             RegValue::Value {
                                 data: ptr,
-                                abs: abs[0].clone(),
+                                abs: abs[1].clone(),
                                 ty: Type::I32,
                             },
                             RegValue::Value {
@@ -1650,6 +1657,7 @@ impl<'a> Evaluator<'a> {
             Operator::Call { function_index }
                 if Some(function_index) == self.intrinsics.read_reg =>
             {
+                // read_reg(idx, slot_ptr)
                 let idx = abs[0].as_const_u64().expect("Non-constant register number");
                 log::trace!("load from specialization reg {}", idx);
                 let slot = RegSlot::Register(idx as u32);
@@ -1673,13 +1681,14 @@ impl<'a> Evaluator<'a> {
             Operator::Call { function_index }
                 if Some(function_index) == self.intrinsics.write_reg =>
             {
+                // write_reg(idx, slot_ptr, value)
                 let idx = abs[0].as_const_u64().expect("Non-constant register number");
-                let data = self.func.arg_pool[vals][1];
+                let data = self.func.arg_pool[vals][2];
                 log::trace!(
                     "store to specialization reg {} value {} abs {:?}",
                     idx,
                     data,
-                    abs[1]
+                    abs[2]
                 );
                 let slot = RegSlot::Register(idx as u32);
                 state.flow.regs.insert(
@@ -1687,7 +1696,7 @@ impl<'a> Evaluator<'a> {
                     RegValue::Value {
                         data,
                         ty: Type::I64,
-                        abs: abs[1].clone(),
+                        abs: abs[2].clone(),
                     },
                 );
 
@@ -2285,7 +2294,7 @@ impl<'a> Evaluator<'a> {
                     block,
                     Operator::I64Store {
                         memory: MemoryArg {
-                            align: 1,
+                            align: 0,
                             offset: 0,
                             memory: self.image.main_heap().unwrap(),
                         },
@@ -2320,7 +2329,7 @@ impl<'a> Evaluator<'a> {
                     block,
                     Operator::I64Store {
                         memory: MemoryArg {
-                            align: 1,
+                            align: 0,
                             offset: 0,
                             memory: self.image.main_heap().unwrap(),
                         },

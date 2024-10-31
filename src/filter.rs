@@ -56,19 +56,85 @@ fn gen_replacement_bytecode(
         "write.global.1" => Ok(vec![wasm_encoder::Instruction::GlobalSet(
             weval_globals + 1,
         )]),
+        // Polyfill interpreter-state intrinsics to fall back to loads/stores to the backing
+        // memory.
+        // read_reg(idx, ptr) -> i64.load; drop
+        "read.reg" => Ok(vec![
+            wasm_encoder::Instruction::I64Load(wasm_encoder::MemArg {
+                offset: 0,
+                align: 0,
+                memory_index: 0,
+            }),
+            wasm_encoder::Instruction::Drop,
+        ]),
+        // write_reg(idx, ptr, value) -> i64.store; drop
+        "write.reg" => Ok(vec![
+            wasm_encoder::Instruction::I64Store(wasm_encoder::MemArg {
+                offset: 0,
+                align: 0,
+                memory_index: 0,
+            }),
+            wasm_encoder::Instruction::Drop,
+        ]),
+        // push_stack(ptr, value) -> i64.store
+        "push.stack" => Ok(vec![wasm_encoder::Instruction::I64Store(
+            wasm_encoder::MemArg {
+                offset: 0,
+                align: 0,
+                memory_index: 0,
+            },
+        )]),
+        // pop_stack(ptr) -> i64.load
+        "pop.stack" => Ok(vec![wasm_encoder::Instruction::I64Load(
+            wasm_encoder::MemArg {
+                offset: 0,
+                align: 0,
+                memory_index: 0,
+            },
+        )]),
+        // read_stack(idx, ptr) -> i64.load; drop
+        "read.stack" => Ok(vec![
+            wasm_encoder::Instruction::I64Load(wasm_encoder::MemArg {
+                offset: 0,
+                align: 0,
+                memory_index: 0,
+            }),
+            wasm_encoder::Instruction::Drop,
+        ]),
+        // write_stack(idx, ptr, value) -> i64.store; drop
+        "write.stack" => Ok(vec![
+            wasm_encoder::Instruction::I64Store(wasm_encoder::MemArg {
+                offset: 0,
+                align: 0,
+                memory_index: 0,
+            }),
+            wasm_encoder::Instruction::Drop,
+        ]),
+        // sync_stack() -> nothing
+        "sync.stack" => Ok(vec![]),
+        // read_local(idx, ptr) -> i64.load; drop
+        "read.local" => Ok(vec![
+            wasm_encoder::Instruction::I64Load(wasm_encoder::MemArg {
+                offset: 0,
+                align: 0,
+                memory_index: 0,
+            }),
+            wasm_encoder::Instruction::Drop,
+        ]),
+        // write_local(idx, ptr, value) -> i64.store; drop
+        "write.local" => Ok(vec![
+            wasm_encoder::Instruction::I64Store(wasm_encoder::MemArg {
+                offset: 0,
+                align: 0,
+                memory_index: 0,
+            }),
+            wasm_encoder::Instruction::Drop,
+        ]),
+
         // These can't be polyfilled so we rewrite them to
         // trap. They're only used in template-specialized variants
         // fed to weval requests.
-        "read.specialization.global"
-        | "read.reg"
-        | "write.reg"
-        | "push.stack"
-        | "pop.stack"
-        | "read.stack"
-        | "write.stack"
-        | "sync.stack"
-        | "read.local"
-        | "write.local" => Ok(vec![wasm_encoder::Instruction::Unreachable]),
+        "read.specialization.global" => Ok(vec![wasm_encoder::Instruction::Unreachable]),
 
         // All other intrinsics have "pass through first arg" behavior
         // if they have a return value, and otherwise have no effect.
