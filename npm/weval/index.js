@@ -4,10 +4,12 @@ import { dirname, join, parse } from 'node:path';
 import { platform, arch } from "node:process";
 import { mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
+
 import decompress from 'decompress';
 import decompressUnzip from 'decompress-unzip';
 import decompressTar from 'decompress-tar';
 import xz from '@napi-rs/lzma/xz';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const TAG = "v0.3.2";
@@ -31,12 +33,18 @@ async function getWeval() {
     }
 
     async function getJSON(url) {
-        let response = await fetch(url);
-        if (!response.ok) {
-            console.error(`Bad response from ${url}`);
-            process.exit(1);
+      let resp;
+      try {
+        resp = await fetch(url);
+        if (!resp.ok) {
+          throw new Error("non 2xx response code");
         }
-        return response.json();
+        return resp.json();
+      } catch (err) {
+        const errMsg = err?.toString() ?? 'unknown error';
+        console.error(`failed to fetch JSON from URL [${url}] (status ${resp?.status}): ${errMsg}`);
+        process.exit(1);
+      }
     }
 
     const platformName = getPlatformName();
@@ -46,40 +54,42 @@ async function getWeval() {
     const exeDir = join(__dirname, platformName);
     const exe = join(exeDir, `weval${exeSuffix}`);
 
-    if (!existsSync(exe)) {
-        await mkdir(exeDir, { recursive: true });
-
-        let repoBaseURL = `https://api.github.com/repos/bytecodealliance/weval`;
-        let response = await getJSON(`${repoBaseURL}/releases/tags/${TAG}`);
-        let id = response.id;
-        let assets = await getJSON(`${repoBaseURL}/releases/${id}/assets`);
-        let releaseAsset = `weval-${TAG}-${platformName}.${assetSuffix}`;
-        let asset = assets.find(asset => asset.name === releaseAsset);
-        if (!asset) {
-            console.error(`Can't find an asset named ${releaseAsset}`);
-            process.exit(1);
-        }
-        let data = await fetch(asset.browser_download_url);
-        if (!data.ok) {
-            console.error(`Error downloading ${asset.browser_download_url}`);
-            process.exit(1);
-        }
-        let buf = await data.arrayBuffer();
-
-        if (releaseAsset.endsWith('.xz')) {
-            buf = await xz.decompress(new Uint8Array(buf));
-        }
-        await decompress(Buffer.from(buf), exeDir, {
-            // Remove the leading directory from the extracted file.
-            strip: 1,
-            plugins: [
-                decompressUnzip(),
-                decompressTar()
-            ],
-            // Only extract the binary file and nothing else
-            filter: file => parse(file.path).base === `weval${exeSuffix}`,
-        });
+    // If we already have the executable installed, then return it
+    if (existsSync(exe)) {
+      return exe;
     }
+
+    await mkdir(exeDir, { recursive: true });
+    let repoBaseURL = `https://api.github.com/repos/bytecodealliance/weval`;
+    let response = await getJSON(`${repoBaseURL}/releases/tags/${TAG}`);
+      let id = response.id;
+      let assets = await getJSON(`${repoBaseURL}/releases/${id}/assets`);
+      let releaseAsset = `weval-${TAG}-${platformName}.${assetSuffix}`;
+      let asset = assets.find(asset => asset.name === releaseAsset);
+      if (!asset) {
+          console.error(`Can't find an asset named ${releaseAsset}`);
+          process.exit(1);
+      }
+      let data = await fetch(asset.browser_download_url);
+      if (!data.ok) {
+          console.error(`Error downloading ${asset.browser_download_url}`);
+          process.exit(1);
+      }
+      let buf = await data.arrayBuffer();
+
+      if (releaseAsset.endsWith('.xz')) {
+          buf = await xz.decompress(new Uint8Array(buf));
+      }
+      await decompress(Buffer.from(buf), exeDir, {
+          // Remove the leading directory from the extracted file.
+          strip: 1,
+          plugins: [
+              decompressUnzip(),
+              decompressTar()
+          ],
+          // Only extract the binary file and nothing else
+          filter: file => parse(file.path).base === `weval${exeSuffix}`,
+      });
 
     return exe;
 }
