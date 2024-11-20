@@ -34,23 +34,6 @@ async function getWeval() {
     );
   }
 
-  async function getJSON(url) {
-    let resp;
-    try {
-      resp = await fetch(url);
-      if (!resp.ok) {
-        throw new Error("non 2xx response code");
-      }
-      return resp.json();
-    } catch (err) {
-      const errMsg = err?.toString() ?? "unknown error";
-      console.error(
-        `failed to fetch JSON from URL [${url}] (status ${resp?.status}): ${errMsg}`
-      );
-      process.exit(1);
-    }
-  }
-
   const platformName = getPlatformName();
   const assetSuffix = platform == "win32" ? "zip" : "tar.xz";
   const exeSuffix = platform == "win32" ? ".exe" : "";
