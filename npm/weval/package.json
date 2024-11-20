@@ -1,6 +1,6 @@
 {
   "name": "@bytecodealliance/weval",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "The WebAssembly partial evaluator",
   "type": "module",
   "scripts": {
