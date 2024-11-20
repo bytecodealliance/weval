@@ -12,7 +12,7 @@ import xz from "@napi-rs/lzma/xz";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const TAG = "v0.3.2";
+const TAG = "v0.3.3";
 
 async function getWeval() {
   const knownPlatforms = {
