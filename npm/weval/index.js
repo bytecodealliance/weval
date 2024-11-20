@@ -60,36 +60,27 @@ async function getWeval() {
     }
 
     await mkdir(exeDir, { recursive: true });
-    let repoBaseURL = `https://api.github.com/repos/bytecodealliance/weval`;
-    let response = await getJSON(`${repoBaseURL}/releases/tags/${TAG}`);
-      let id = response.id;
-      let assets = await getJSON(`${repoBaseURL}/releases/${id}/assets`);
-      let releaseAsset = `weval-${TAG}-${platformName}.${assetSuffix}`;
-      let asset = assets.find(asset => asset.name === releaseAsset);
-      if (!asset) {
-          console.error(`Can't find an asset named ${releaseAsset}`);
-          process.exit(1);
-      }
-      let data = await fetch(asset.browser_download_url);
-      if (!data.ok) {
-          console.error(`Error downloading ${asset.browser_download_url}`);
-          process.exit(1);
-      }
-      let buf = await data.arrayBuffer();
+    const downloadUrl = `https://github.com/bytecodealliance/weval/releases/download/${TAG}/weval-${TAG}-${platformName}.${assetSuffix}`;
+    let data = await fetch(downloadUrl);
+    if (!data.ok) {
+        console.error(`Error downloading ${downloadUrl}`);
+        process.exit(1);
+    }
+    let buf = await data.arrayBuffer();
 
-      if (releaseAsset.endsWith('.xz')) {
-          buf = await xz.decompress(new Uint8Array(buf));
-      }
-      await decompress(Buffer.from(buf), exeDir, {
-          // Remove the leading directory from the extracted file.
-          strip: 1,
-          plugins: [
-              decompressUnzip(),
-              decompressTar()
-          ],
-          // Only extract the binary file and nothing else
-          filter: file => parse(file.path).base === `weval${exeSuffix}`,
-      });
+    if (downloadUrl.endsWith('.xz')) {
+        buf = await xz.decompress(new Uint8Array(buf));
+    }
+    await decompress(Buffer.from(buf), exeDir, {
+        // Remove the leading directory from the extracted file.
+        strip: 1,
+        plugins: [
+            decompressUnzip(),
+            decompressTar()
+        ],
+        // Only extract the binary file and nothing else
+        filter: file => parse(file.path).base === `weval${exeSuffix}`,
+    });
 
     return exe;
 }
