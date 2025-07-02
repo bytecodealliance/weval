@@ -4,7 +4,6 @@
   "description": "The WebAssembly partial evaluator",
   "type": "module",
   "scripts": {
-    "test": "node ./tests/index.mjs",
     "version": "node ./update.js $npm_package_version"
   },
   "dependencies": {

@@ -14,14 +14,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const TAG = "v0.3.4";
 
-/**
- * Download Weval from GitHub releases
- *
- * @param {object} [opts]
- * @param {string} [opts.downloadDir] - Directory to which the binary should be downloaded
- * @returns {string} path to the downloaded binary on disk
- */
-export async function getWeval(opts) {
+async function getWeval() {
   const knownPlatforms = {
     "win32 x64 LE": "x86_64-windows",
     "darwin arm64 LE": "aarch64-macos",
@@ -45,7 +38,7 @@ export async function getWeval(opts) {
   const assetSuffix = platform == "win32" ? "zip" : "tar.xz";
   const exeSuffix = platform == "win32" ? ".exe" : "";
 
-  const exeDir = join(opts && opts.downloadDir ? opts.downloadDir : __dirname, platformName);
+  const exeDir = join(__dirname, platformName);
   const exe = join(exeDir, `weval${exeSuffix}`);
 
   // If we already have the executable installed, then return it
