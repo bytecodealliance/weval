@@ -137,6 +137,11 @@ pub(crate) fn partially_evaluate<'a>(
 
             let stats = Mutex::new(SpecializationStats::new(directive.func, &f));
 
+            log::debug!(
+                "Processing source func:\n{}",
+                f.display_verbose("| ", Some(&module))
+            );
+
             split_blocks_at_intrinsic_calls(&mut f, &intrinsics);
 
             f.recompute_edges();
@@ -389,7 +394,11 @@ fn split_blocks_at_intrinsic_calls(func: &mut FunctionBody, intrinsics: &Intrins
                 if Some(*function_index) == intrinsics.specialize_value
                     || Some(*function_index) == intrinsics.pop_context
                 {
-                    log::trace!("Splitting at weval intrinsic for inst {}", inst);
+                    log::trace!(
+                        "Splitting from block {} at weval intrinsic for inst {}",
+                        block,
+                        inst
+                    );
 
                     // Split the block here!  Split *after* the call
                     // (the `i + 1`).
@@ -400,8 +409,8 @@ fn split_blocks_at_intrinsic_calls(func: &mut FunctionBody, intrinsics: &Intrins
                     let term = std::mem::take(&mut func.blocks[block].terminator);
                     func.blocks[new_block].terminator = term;
                     func.blocks[new_block].desc = format!(
-                        "Split from {} at value specialization on {}",
-                        func.blocks[block].desc, inst
+                        "Split from {} ({}) at value specialization on {}",
+                        block, func.blocks[block].desc, inst
                     );
 
                     let target = BlockTarget {
@@ -1027,12 +1036,13 @@ impl<'a> Evaluator<'a> {
         // Parallel-move semantics: read all uses above, then write
         // all defs below.
         let mut changed = false;
-        for (blockparam, abs) in self.generic.blocks[target.block]
+        for (blockparam, (orig_arg, abs)) in self.generic.blocks[target.block]
             .params
             .iter()
             .map(|(_, val)| *val)
-            .zip(abs_args.iter())
+            .zip(target.args.iter().zip(abs_args.iter()))
         {
+            let orig_arg = self.generic.resolve_alias(*orig_arg);
             let &val = self.value_map.get(&(target_ctx, blockparam)).unwrap();
 
             let abs = if let ContextElem::Specialized(index, val) =
@@ -1040,11 +1050,12 @@ impl<'a> Evaluator<'a> {
             {
                 if index == blockparam {
                     log::trace!(
-                        "Specialized context into block {} context {}: index {} becomes val {}",
+                        "Specialized context into block {} context {}: index {} becomes val {} from generic {}",
                         target_block,
                         target_ctx,
                         index,
-                        val
+                        val,
+                        orig_arg,
                     );
                     AbstractValue::Concrete(WasmVal::I32(val))
                 } else {
@@ -1055,8 +1066,14 @@ impl<'a> Evaluator<'a> {
             };
 
             log::debug!(
-                "blockparam: updating with new def: block {} context {} param {} val {} abstract {:?}",
-                target.block, target_ctx, blockparam, val, abs);
+                "blockparam: updating with new def: block {} context {} param {} val {} abstract {:?} from arg {}",
+                target.block,
+                target_ctx,
+                blockparam,
+                val,
+                abs,
+                orig_arg,
+            );
             changed |= self.def_value(orig_block, target_ctx, blockparam, val, abs);
         }
 
@@ -1376,8 +1393,13 @@ impl<'a> Evaluator<'a> {
                     EvalResult::Elide
                 } else if Some(function_index) == self.intrinsics.trace_line {
                     let line_num = abs[0].as_const_u32().unwrap_or(0);
-                    log::debug!("trace: line number {}: current context {} at block {}, pending context {:?}",
-                                line_num, state.context, orig_block, state.pending_context);
+                    log::debug!(
+                        "trace: line number {}: current context {} at block {}, pending context {:?}",
+                        line_num,
+                        state.context,
+                        orig_block,
+                        state.pending_context
+                    );
                     EvalResult::Elide
                 } else if Some(function_index) == self.intrinsics.assert_const32 {
                     log::trace!("assert_const32: abs {:?} line {:?}", abs[0], abs[1]);
@@ -1386,6 +1408,12 @@ impl<'a> Evaluator<'a> {
                             "weval_assert_const32() failed: {:?}: line {:?}",
                             abs[0], abs[1]
                         );
+                    }
+                    EvalResult::Elide
+                } else if Some(function_index) == self.intrinsics.assert_specialized {
+                    log::trace!("assert_specialized: context {:?}", state.context);
+                    if state.context.index() == 0 {
+                        panic!("weval_assert_specialized() failed: line {:?}", abs[0]);
                     }
                     EvalResult::Elide
                 } else if Some(function_index) == self.intrinsics.print {

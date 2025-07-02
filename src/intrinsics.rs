@@ -13,6 +13,7 @@ pub(crate) struct Intrinsics {
     pub abort_specialization: Option<Func>,
     pub trace_line: Option<Func>,
     pub assert_const32: Option<Func>,
+    pub assert_specialized: Option<Func>,
     pub specialize_value: Option<Func>,
     pub print: Option<Func>,
     pub read_specialization_global: Option<Func>,
@@ -45,6 +46,12 @@ impl Intrinsics {
                 module,
                 "assert.const32",
                 &[Type::I32, Type::I32],
+                &[],
+            ),
+            assert_specialized: find_imported_intrinsic(
+                module,
+                "assert.specialized",
+                &[Type::I32],
                 &[],
             ),
             specialize_value: find_imported_intrinsic(
