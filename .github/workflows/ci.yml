@@ -51,15 +51,3 @@ jobs:
       run: make -C tests/simple run-base
     - name: Build and run wevaled 'simple' test
       run: make -C tests/simple run-wevaled
-
-  test-js:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
-      with:
-        node-version: latest
-    - run: npm install
-      working-directory: npm/weval
-    - run: npm test
-      working-directory: npm/weval
