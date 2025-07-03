@@ -3,7 +3,7 @@
 use crate::cache::{Cache, CacheData};
 use crate::directive::{Directive, DirectiveArgs};
 use crate::image::Image;
-use crate::intrinsics::{find_global_data_by_exported_func, Intrinsics};
+use crate::intrinsics::{Intrinsics, find_global_data_by_exported_func};
 use crate::liveness::Liveness;
 use crate::state::*;
 use crate::stats::SpecializationStats;
@@ -12,12 +12,12 @@ use fxhash::FxHashMap as HashMap;
 use fxhash::FxHashSet as HashSet;
 use rayon::prelude::*;
 use std::borrow::Cow;
-use std::collections::{hash_map::Entry as HashEntry, BTreeSet, VecDeque};
+use std::collections::{BTreeSet, VecDeque, hash_map::Entry as HashEntry};
 use std::sync::Mutex;
 use waffle::{
-    cfg::CFGInfo, entity::EntityRef, entity::PerEntity, pool::ListRef, Block, BlockDef,
-    BlockTarget, FuncDecl, FunctionBody, Memory, MemoryArg, Module, Operator, Signature, SourceLoc,
-    Table, Terminator, Type, Value, ValueDef,
+    Block, BlockDef, BlockTarget, FuncDecl, FunctionBody, Memory, MemoryArg, Module, Operator,
+    Signature, SourceLoc, Table, Terminator, Type, Value, ValueDef, cfg::CFGInfo,
+    entity::EntityRef, entity::PerEntity, pool::ListRef,
 };
 
 struct Evaluator<'a> {
@@ -172,7 +172,7 @@ pub(crate) fn partially_evaluate<'a>(
                 ) {
                     Ok(result) => result,
                     Err(e) => {
-                        log::warn!("Failed to evaluate function: {e:?}");
+                        println!("Failed to evaluate function: {e:?}");
                         return None;
                     }
                 };
@@ -572,6 +572,67 @@ impl EvalResult {
         match self {
             &EvalResult::Unhandled => false,
             _ => true,
+        }
+    }
+}
+
+#[derive(Debug)]
+enum BlockTargetCond {
+    None,
+    Eq(Value, WasmVal),
+}
+impl BlockTargetCond {
+    /// Determines what symbolic condition, if any, we can infer from
+    /// a conditional branch on `value != 0` (if `test` is true)
+    /// or `value == 0` (if `test` is false).
+    fn from_value(func: &FunctionBody, value: Value, test: bool) -> BlockTargetCond {
+        let is_const = |value| -> Option<WasmVal> {
+            if let ValueDef::Operator(op, ..) = &func.values[value] {
+                match op {
+                    Operator::I32Const { value } => Some(WasmVal::I32(*value)),
+                    Operator::I64Const { value } => Some(WasmVal::I64(*value)),
+                    Operator::F32Const { value } => Some(WasmVal::F32(*value)),
+                    Operator::F64Const { value } => Some(WasmVal::F64(*value)),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        };
+
+        log::trace!(
+            "BlockTargetCond::from_value: value {value} test {test} def {:?}",
+            func.values[value]
+        );
+
+        if let ValueDef::Operator(op, args, _) = &func.values[value] {
+            let args = &func.arg_pool[*args];
+            log::trace!(" -> opcode {op:?} args {args:?}");
+            match op {
+                Operator::I32Eq | Operator::I64Eq if test => {
+                    if let Some(k) = is_const(args[0]) {
+                        BlockTargetCond::Eq(args[1], k)
+                    } else if let Some(k) = is_const(args[1]) {
+                        BlockTargetCond::Eq(args[0], k)
+                    } else {
+                        BlockTargetCond::None
+                    }
+                }
+                Operator::I32Ne | Operator::I64Ne if !test => {
+                    if let Some(k) = is_const(args[0]) {
+                        BlockTargetCond::Eq(args[1], k)
+                    } else if let Some(k) = is_const(args[1]) {
+                        BlockTargetCond::Eq(args[0], k)
+                    } else {
+                        BlockTargetCond::None
+                    }
+                }
+                Operator::I32Eqz if test => BlockTargetCond::Eq(args[0], WasmVal::I32(0)),
+                Operator::I64Eqz if test => BlockTargetCond::Eq(args[0], WasmVal::I64(0)),
+                _ => BlockTargetCond::None,
+            }
+        } else {
+            BlockTargetCond::None
         }
     }
 }
@@ -1004,15 +1065,17 @@ impl<'a> Evaluator<'a> {
         state: &PointState,
         target_ctx: Context,
         target: &BlockTarget,
+        condition: BlockTargetCond,
     ) -> BlockTarget {
         let n_args = self.generic.blocks[orig_block].params.len();
         let mut args = Vec::with_capacity(n_args);
         let mut abs_args = Vec::with_capacity(n_args);
         log::trace!(
-            "evaluate target: block {} context {} to {:?}",
+            "evaluate target: block {} context {} to {:?} with cond {:?}",
             orig_block,
             state.context,
-            target
+            target,
+            condition,
         );
 
         let target_block =
@@ -1061,6 +1124,11 @@ impl<'a> Evaluator<'a> {
                 } else {
                     abs.clone()
                 }
+            } else if let BlockTargetCond::Eq(cond_val, k) = condition
+                && cond_val == orig_arg
+            {
+                log::trace!("Block target condition overrides value for {cond_val} to {k:?}");
+                AbstractValue::Concrete(k)
             } else {
                 abs.clone()
             };
@@ -1102,12 +1170,13 @@ impl<'a> Evaluator<'a> {
         let new_term = match &self.generic.blocks[orig_block].terminator {
             &Terminator::None => Terminator::None,
             &Terminator::CondBr {
-                cond,
+                cond: orig_cond,
                 ref if_true,
                 ref if_false,
             } => {
                 assert!(!state.pending_specialize.is_some());
-                let (cond, abs_cond) = self.use_value(state.context, orig_block, new_block, cond);
+                let (cond, abs_cond) =
+                    self.use_value(state.context, orig_block, new_block, orig_cond);
                 // Update pending context with new stack if necessary.
                 match abs_cond.as_const_truthy() {
                     Some(true) => Terminator::Br {
@@ -1117,6 +1186,7 @@ impl<'a> Evaluator<'a> {
                             state,
                             new_context,
                             if_true,
+                            BlockTargetCond::None,
                         ),
                     },
                     Some(false) => Terminator::Br {
@@ -1126,25 +1196,34 @@ impl<'a> Evaluator<'a> {
                             state,
                             new_context,
                             if_false,
+                            BlockTargetCond::None,
                         ),
                     },
-                    None => Terminator::CondBr {
-                        cond,
-                        if_true: self.evaluate_block_target(
-                            orig_block,
-                            new_block,
-                            state,
-                            new_context,
-                            if_true,
-                        ),
-                        if_false: self.evaluate_block_target(
-                            orig_block,
-                            new_block,
-                            state,
-                            new_context,
-                            if_false,
-                        ),
-                    },
+                    None => {
+                        let if_true_cond =
+                            BlockTargetCond::from_value(self.generic, orig_cond, true);
+                        let if_false_cond =
+                            BlockTargetCond::from_value(self.generic, orig_cond, false);
+                        Terminator::CondBr {
+                            cond,
+                            if_true: self.evaluate_block_target(
+                                orig_block,
+                                new_block,
+                                state,
+                                new_context,
+                                if_true,
+                                if_true_cond,
+                            ),
+                            if_false: self.evaluate_block_target(
+                                orig_block,
+                                new_block,
+                                state,
+                                new_context,
+                                if_false,
+                                if_false_cond,
+                            ),
+                        }
+                    }
                 }
             }
             &Terminator::Br { ref target } => {
@@ -1164,7 +1243,14 @@ impl<'a> Evaluator<'a> {
                                 ContextElem::Specialized(target_specialized_value, i),
                             );
                             log::trace!(" -> created new context {} for index {}", c, i);
-                            self.evaluate_block_target(orig_block, new_block, state, c, target)
+                            self.evaluate_block_target(
+                                orig_block,
+                                new_block,
+                                state,
+                                c,
+                                target,
+                                BlockTargetCond::None,
+                            )
                         })
                         .collect();
                     let default = targets.pop().unwrap();
@@ -1183,6 +1269,7 @@ impl<'a> Evaluator<'a> {
                             state,
                             new_context,
                             target,
+                            BlockTargetCond::None,
                         ),
                     }
                 }
@@ -1209,6 +1296,7 @@ impl<'a> Evaluator<'a> {
                             state,
                             new_context,
                             target,
+                            BlockTargetCond::None,
                         ),
                     }
                 } else {
@@ -1221,6 +1309,7 @@ impl<'a> Evaluator<'a> {
                                 state,
                                 new_context,
                                 target,
+                                BlockTargetCond::None,
                             )
                         })
                         .collect::<Vec<_>>();
@@ -1230,6 +1319,7 @@ impl<'a> Evaluator<'a> {
                         state,
                         new_context,
                         default,
+                        BlockTargetCond::None,
                     );
                     Terminator::Select {
                         value,
@@ -1424,7 +1514,7 @@ impl<'a> Evaluator<'a> {
                         .unwrap();
                     let line = abs[1].as_const_u32().unwrap();
                     let val = abs[2].clone();
-                    log::info!("print: line {}: {}: {:?}", line, message, val);
+                    println!("print: line {:?}: {}: {:?}", line, message, val);
                     EvalResult::Elide
                 } else if Some(function_index) == self.intrinsics.read_specialization_global {
                     let index = abs[0].as_const_u32().unwrap() as usize;

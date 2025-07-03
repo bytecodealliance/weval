@@ -5,7 +5,7 @@ repository = "https://github.com/bytecodealliance/weval"
 version = "0.3.4"
 authors = ["Chris Fallin <chris@cfallin.org>"]
 license = "Apache-2.0 WITH LLVM-exception"
-edition = "2021"
+edition = "2024"
 exclude = ["/npm", "/ci"]
 
 [dependencies]
