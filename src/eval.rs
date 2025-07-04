@@ -1924,12 +1924,8 @@ impl<'a> Evaluator<'a> {
                     0
                 })))
             }
-            (Operator::I32Eqz, AbstractValue::ConcreteNot(WasmVal::I32(k))) => {
-                Ok(AbstractValue::Concrete(WasmVal::I32(if *k == 0 {
-                    0
-                } else {
-                    1
-                })))
+            (Operator::I32Eqz, AbstractValue::ConcreteNot(WasmVal::I32(0))) => {
+                Ok(AbstractValue::Concrete(WasmVal::I32(0)))
             }
             (Operator::I64Eqz, AbstractValue::Concrete(WasmVal::I64(k))) => {
                 Ok(AbstractValue::Concrete(WasmVal::I32(if *k == 0 {
@@ -1938,12 +1934,8 @@ impl<'a> Evaluator<'a> {
                     0
                 })))
             }
-            (Operator::I64Eqz, AbstractValue::ConcreteNot(WasmVal::I64(k))) => {
-                Ok(AbstractValue::Concrete(WasmVal::I32(if *k == 0 {
-                    0
-                } else {
-                    1
-                })))
+            (Operator::I64Eqz, AbstractValue::ConcreteNot(WasmVal::I64(0))) => {
+                Ok(AbstractValue::Concrete(WasmVal::I32(0)))
             }
             (Operator::I32Extend8S, AbstractValue::Concrete(WasmVal::I32(k))) => Ok(
                 AbstractValue::Concrete(WasmVal::I32(*k as i8 as i32 as u32)),
@@ -2330,9 +2322,7 @@ impl<'a> Evaluator<'a> {
             | (
                 AbstractValue::ConcreteNot(WasmVal::I32(k2)),
                 AbstractValue::Concrete(WasmVal::I32(k1)),
-            ) if op == Operator::I32Eq => {
-                AbstractValue::Concrete(WasmVal::I32(if k1 == k2 { 0 } else { 1 }))
-            }
+            ) if op == Operator::I32Eq && k1 == k2 => AbstractValue::Concrete(WasmVal::I32(0)),
 
             (
                 AbstractValue::Concrete(WasmVal::I32(k1)),
@@ -2341,9 +2331,7 @@ impl<'a> Evaluator<'a> {
             | (
                 AbstractValue::ConcreteNot(WasmVal::I32(k2)),
                 AbstractValue::Concrete(WasmVal::I32(k1)),
-            ) if op == Operator::I32Ne => {
-                AbstractValue::Concrete(WasmVal::I32(if k1 == k2 { 1 } else { 0 }))
-            }
+            ) if op == Operator::I32Ne && k1 == k2 => AbstractValue::Concrete(WasmVal::I32(1)),
 
             (
                 AbstractValue::Concrete(WasmVal::I64(k1)),
@@ -2352,9 +2340,7 @@ impl<'a> Evaluator<'a> {
             | (
                 AbstractValue::ConcreteNot(WasmVal::I64(k2)),
                 AbstractValue::Concrete(WasmVal::I64(k1)),
-            ) if op == Operator::I64Eq => {
-                AbstractValue::Concrete(WasmVal::I32(if k1 == k2 { 0 } else { 1 }))
-            }
+            ) if op == Operator::I64Eq && k1 == k2 => AbstractValue::Concrete(WasmVal::I32(0)),
 
             (
                 AbstractValue::Concrete(WasmVal::I64(k1)),
@@ -2363,9 +2349,7 @@ impl<'a> Evaluator<'a> {
             | (
                 AbstractValue::ConcreteNot(WasmVal::I64(k2)),
                 AbstractValue::Concrete(WasmVal::I64(k1)),
-            ) if op == Operator::I64Ne => {
-                AbstractValue::Concrete(WasmVal::I32(if k1 == k2 { 1 } else { 0 }))
-            }
+            ) if op == Operator::I64Ne && k1 == k2 => AbstractValue::Concrete(WasmVal::I32(1)),
 
             // ptr OP const | const OP ptr (commutative cases)
             (
