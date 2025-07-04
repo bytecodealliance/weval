@@ -59,6 +59,9 @@ pub(crate) enum AbstractValue {
     Top,
     /// A value known at specialization time.
     Concrete(WasmVal),
+    /// A value known *not* to be some concrete value at
+    /// specialization time.
+    ConcreteNot(WasmVal),
     /// A value that points to memory known at specialization time,
     /// with the given offset.
     ConcreteMemory(MemoryBufferIndex, u32),

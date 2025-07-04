@@ -393,6 +393,7 @@ fn split_blocks_at_intrinsic_calls(func: &mut FunctionBody, intrinsics: &Intrins
             {
                 if Some(*function_index) == intrinsics.specialize_value
                     || Some(*function_index) == intrinsics.pop_context
+                    || Some(*function_index) == intrinsics.push_context
                 {
                     log::trace!(
                         "Splitting from block {} at weval intrinsic for inst {}",
@@ -580,6 +581,7 @@ impl EvalResult {
 enum BlockTargetCond {
     None,
     Eq(Value, WasmVal),
+    Ne(Value, WasmVal),
 }
 impl BlockTargetCond {
     /// Determines what symbolic condition, if any, we can infer from
@@ -608,27 +610,36 @@ impl BlockTargetCond {
         if let ValueDef::Operator(op, args, _) = &func.values[value] {
             let args = &func.arg_pool[*args];
             log::trace!(" -> opcode {op:?} args {args:?}");
-            match op {
-                Operator::I32Eq | Operator::I64Eq if test => {
-                    if let Some(k) = is_const(args[0]) {
-                        BlockTargetCond::Eq(args[1], k)
-                    } else if let Some(k) = is_const(args[1]) {
-                        BlockTargetCond::Eq(args[0], k)
-                    } else {
-                        BlockTargetCond::None
-                    }
-                }
-                Operator::I32Ne | Operator::I64Ne if !test => {
-                    if let Some(k) = is_const(args[0]) {
-                        BlockTargetCond::Eq(args[1], k)
-                    } else if let Some(k) = is_const(args[1]) {
-                        BlockTargetCond::Eq(args[0], k)
-                    } else {
-                        BlockTargetCond::None
-                    }
-                }
-                Operator::I32Eqz if test => BlockTargetCond::Eq(args[0], WasmVal::I32(0)),
-                Operator::I64Eqz if test => BlockTargetCond::Eq(args[0], WasmVal::I64(0)),
+            match (
+                test,
+                op,
+                args.get(0).and_then(|x| is_const(*x)),
+                args.get(1).and_then(|x| is_const(*x)),
+            ) {
+                (true, Operator::I32Eq, Some(k), _) => BlockTargetCond::Eq(args[1], k),
+                (true, Operator::I32Eq, _, Some(k)) => BlockTargetCond::Eq(args[0], k),
+                (true, Operator::I32Ne, Some(k), _) => BlockTargetCond::Ne(args[1], k),
+                (true, Operator::I32Ne, _, Some(k)) => BlockTargetCond::Ne(args[0], k),
+                (true, Operator::I64Eq, Some(k), _) => BlockTargetCond::Eq(args[1], k),
+                (true, Operator::I64Eq, _, Some(k)) => BlockTargetCond::Eq(args[0], k),
+                (true, Operator::I64Ne, Some(k), _) => BlockTargetCond::Ne(args[1], k),
+                (true, Operator::I64Ne, _, Some(k)) => BlockTargetCond::Ne(args[0], k),
+
+                (false, Operator::I32Eq, Some(k), _) => BlockTargetCond::Ne(args[1], k),
+                (false, Operator::I32Eq, _, Some(k)) => BlockTargetCond::Ne(args[0], k),
+                (false, Operator::I32Ne, Some(k), _) => BlockTargetCond::Eq(args[1], k),
+                (false, Operator::I32Ne, _, Some(k)) => BlockTargetCond::Eq(args[0], k),
+                (false, Operator::I64Eq, Some(k), _) => BlockTargetCond::Ne(args[1], k),
+                (false, Operator::I64Eq, _, Some(k)) => BlockTargetCond::Ne(args[0], k),
+                (false, Operator::I64Ne, Some(k), _) => BlockTargetCond::Eq(args[1], k),
+                (false, Operator::I64Ne, _, Some(k)) => BlockTargetCond::Eq(args[0], k),
+
+                (true, Operator::I32Eqz, _, _) => BlockTargetCond::Eq(args[0], WasmVal::I32(0)),
+                (true, Operator::I64Eqz, _, _) => BlockTargetCond::Eq(args[0], WasmVal::I64(0)),
+
+                (false, Operator::I32Eqz, _, _) => BlockTargetCond::Ne(args[0], WasmVal::I32(0)),
+                (false, Operator::I64Eqz, _, _) => BlockTargetCond::Ne(args[0], WasmVal::I64(0)),
+
                 _ => BlockTargetCond::None,
             }
         } else {
@@ -1129,6 +1140,11 @@ impl<'a> Evaluator<'a> {
             {
                 log::trace!("Block target condition overrides value for {cond_val} to {k:?}");
                 AbstractValue::Concrete(k)
+            } else if let BlockTargetCond::Ne(cond_val, k) = condition
+                && cond_val == orig_arg
+            {
+                log::trace!("Block target condition overrides value for {cond_val} to not-{k:?}");
+                AbstractValue::ConcreteNot(k)
             } else {
                 abs.clone()
             };
@@ -1859,11 +1875,25 @@ impl<'a> Evaluator<'a> {
                     0
                 })))
             }
+            (Operator::I32Eqz, AbstractValue::ConcreteNot(WasmVal::I32(k))) => {
+                Ok(AbstractValue::Concrete(WasmVal::I32(if *k == 0 {
+                    0
+                } else {
+                    1
+                })))
+            }
             (Operator::I64Eqz, AbstractValue::Concrete(WasmVal::I64(k))) => {
                 Ok(AbstractValue::Concrete(WasmVal::I32(if *k == 0 {
                     1
                 } else {
                     0
+                })))
+            }
+            (Operator::I64Eqz, AbstractValue::ConcreteNot(WasmVal::I64(k))) => {
+                Ok(AbstractValue::Concrete(WasmVal::I32(if *k == 0 {
+                    0
+                } else {
+                    1
                 })))
             }
             (Operator::I32Extend8S, AbstractValue::Concrete(WasmVal::I32(k))) => Ok(
@@ -2242,6 +2272,50 @@ impl<'a> Evaluator<'a> {
                     // TODO: FP and SIMD ops.
                     _ => AbstractValue::Runtime(Some(orig_inst)),
                 }
+            }
+
+            (
+                AbstractValue::Concrete(WasmVal::I32(k1)),
+                AbstractValue::ConcreteNot(WasmVal::I32(k2)),
+            )
+            | (
+                AbstractValue::ConcreteNot(WasmVal::I32(k2)),
+                AbstractValue::Concrete(WasmVal::I32(k1)),
+            ) if op == Operator::I32Eq => {
+                AbstractValue::Concrete(WasmVal::I32(if k1 == k2 { 0 } else { 1 }))
+            }
+
+            (
+                AbstractValue::Concrete(WasmVal::I32(k1)),
+                AbstractValue::ConcreteNot(WasmVal::I32(k2)),
+            )
+            | (
+                AbstractValue::ConcreteNot(WasmVal::I32(k2)),
+                AbstractValue::Concrete(WasmVal::I32(k1)),
+            ) if op == Operator::I32Ne => {
+                AbstractValue::Concrete(WasmVal::I32(if k1 == k2 { 1 } else { 0 }))
+            }
+
+            (
+                AbstractValue::Concrete(WasmVal::I64(k1)),
+                AbstractValue::ConcreteNot(WasmVal::I64(k2)),
+            )
+            | (
+                AbstractValue::ConcreteNot(WasmVal::I64(k2)),
+                AbstractValue::Concrete(WasmVal::I64(k1)),
+            ) if op == Operator::I64Eq => {
+                AbstractValue::Concrete(WasmVal::I64(if k1 == k2 { 0 } else { 1 }))
+            }
+
+            (
+                AbstractValue::Concrete(WasmVal::I64(k1)),
+                AbstractValue::ConcreteNot(WasmVal::I64(k2)),
+            )
+            | (
+                AbstractValue::ConcreteNot(WasmVal::I64(k2)),
+                AbstractValue::Concrete(WasmVal::I64(k1)),
+            ) if op == Operator::I64Ne => {
+                AbstractValue::Concrete(WasmVal::I64(if k1 == k2 { 1 } else { 0 }))
             }
 
             // ptr OP const | const OP ptr (commutative cases)
