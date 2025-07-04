@@ -95,6 +95,19 @@ impl Contexts {
             }
         }
     }
+
+    pub(crate) fn depth(&self, mut context: Context) -> u32 {
+        let mut count = 0;
+        loop {
+            match &self.contexts[context] {
+                (_, ContextElem::Root) => return count,
+                (parent, _) => {
+                    count += 1;
+                    context = *parent;
+                }
+            }
+        }
+    }
 }
 
 /// The flow-sensitive part of the state.

@@ -172,7 +172,7 @@ pub(crate) fn partially_evaluate<'a>(
                 ) {
                     Ok(result) => result,
                     Err(e) => {
-                        println!("Failed to evaluate function: {e:?}");
+                        log::warn!("Failed to evaluate function: {e:?}");
                         return None;
                     }
                 };
@@ -567,6 +567,7 @@ enum EvalResult {
     Alias(AbstractValue, Value),
     Normal(AbstractValue),
     NewBlock(Block, AbstractValue, Value),
+    Unreachable,
 }
 impl EvalResult {
     fn is_handled(&self) -> bool {
@@ -652,6 +653,11 @@ impl BlockTargetCond {
 const MAX_BLOCKS: usize = 100_000;
 const MAX_VALUES: usize = 1_000_000;
 
+enum BlockBodyResult {
+    Normal(Block),
+    Unreachable(Block),
+}
+
 impl<'a> Evaluator<'a> {
     fn evaluate(&mut self) -> anyhow::Result<bool> {
         while let Some((orig_block, ctx, new_block)) = self.queue.pop_back() {
@@ -721,7 +727,7 @@ impl<'a> Evaluator<'a> {
         // Do the actual constant-prop, carrying the state across the
         // block and updating flow-sensitive state, and updating SSA
         // vals as well.
-        let new_block = self
+        let result = self
             .evaluate_block_body(orig_block, &mut state, new_block)
             .map_err(|e| {
                 e.context(anyhow::anyhow!(
@@ -731,10 +737,16 @@ impl<'a> Evaluator<'a> {
                 ))
             })?;
 
-        // Store the exit state at this point for later use.
-        self.state.block_exit[new_block] = state.flow.clone();
-
-        self.evaluate_term(orig_block, &mut state, new_block);
+        match result {
+            BlockBodyResult::Normal(end_block) => {
+                // Store the exit state at this point for later use.
+                self.state.block_exit[end_block] = state.flow.clone();
+                self.evaluate_term(orig_block, &mut state, end_block);
+            }
+            BlockBodyResult::Unreachable(end_block) => {
+                self.func.blocks[end_block].terminator = Terminator::Unreachable;
+            }
+        }
 
         Ok(())
     }
@@ -853,7 +865,7 @@ impl<'a> Evaluator<'a> {
         orig_block: Block,
         state: &mut PointState,
         mut new_block: Block,
-    ) -> anyhow::Result<Block> {
+    ) -> anyhow::Result<BlockBodyResult> {
         // Reused below for each instruction.
         let mut arg_abs_values = vec![];
 
@@ -967,6 +979,9 @@ impl<'a> Evaluator<'a> {
                             new_block = block;
                             Some((ValueDef::Alias(value), av))
                         }
+                        EvalResult::Unreachable => {
+                            return Ok(BlockBodyResult::Unreachable(new_block));
+                        }
                     }
                 }
                 _ => unreachable!(
@@ -983,7 +998,7 @@ impl<'a> Evaluator<'a> {
             }
         }
 
-        Ok(new_block)
+        Ok(BlockBodyResult::Normal(new_block))
     }
 
     fn meet_into_block_entry(
@@ -1523,6 +1538,14 @@ impl<'a> Evaluator<'a> {
                         panic!("Specialization reached a point it shouldn't have!");
                     }
                     EvalResult::Elide
+                } else if Some(function_index) == self.intrinsics.reachable_at_depth {
+                    let depth = abs[0].as_const_u32().unwrap();
+                    let actual_depth = self.state.contexts.depth(state.context);
+                    if depth != actual_depth {
+                        EvalResult::Unreachable
+                    } else {
+                        EvalResult::Elide
+                    }
                 } else if Some(function_index) == self.intrinsics.trace_line {
                     let line_num = abs[0].as_const_u32().unwrap_or(0);
                     log::debug!(
@@ -1556,7 +1579,7 @@ impl<'a> Evaluator<'a> {
                         .unwrap();
                     let line = abs[1].as_const_u32().unwrap();
                     let val = abs[2].clone();
-                    println!("print: line {:?}: {}: {:?}", line, message, val);
+                    log::info!("print: line {:?}: {}: {:?}", line, message, val);
                     EvalResult::Elide
                 } else if Some(function_index) == self.intrinsics.read_specialization_global {
                     let index = abs[0].as_const_u32().unwrap() as usize;
