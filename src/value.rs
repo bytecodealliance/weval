@@ -101,6 +101,15 @@ impl AbstractValue {
         }
     }
 
+    pub(crate) fn is_concrete(&self) -> bool {
+        match self {
+            AbstractValue::Top | AbstractValue::Runtime(_) | AbstractValue::ConcreteNot(_) => false,
+            AbstractValue::Concrete(_)
+            | AbstractValue::ConcreteMemory(..)
+            | AbstractValue::StaticMemory(_) => true,
+        }
+    }
+
     pub(crate) fn as_const_u32(&self) -> Option<u32> {
         match self {
             &AbstractValue::Concrete(WasmVal::I32(k)) => Some(k),

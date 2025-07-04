@@ -577,8 +577,9 @@ impl EvalResult {
     }
 }
 
-#[derive(Debug)]
-enum BlockTargetCond {
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub(crate) enum BlockTargetCond {
+    #[default]
     None,
     Eq(Value, WasmVal),
     Ne(Value, WasmVal),
@@ -747,6 +748,7 @@ impl<'a> Evaluator<'a> {
         orig_block: Block,
         new_block: Block,
         orig_val: Value,
+        state: &ProgPointState,
     ) -> (Value, AbstractValue) {
         log::trace!(
             "using value {} at block {} in context {}",
@@ -754,7 +756,7 @@ impl<'a> Evaluator<'a> {
             orig_block,
             context
         );
-        if let Some(&val) = self.value_map.get(&(context, orig_val)) {
+        let (val, abs) = if let Some(&val) = self.value_map.get(&(context, orig_val)) {
             if self.cfg.def_block[orig_val] != orig_block {
                 self.value_dep_blocks
                     .entry((context, orig_val))
@@ -764,12 +766,35 @@ impl<'a> Evaluator<'a> {
             let abs = &self.state.values[val];
             log::trace!(" -> found abstract  value {:?} at context {}", abs, context);
             log::trace!(" -> runtime value {}", val);
-            return (val, abs.clone());
+            (val, abs.clone())
+        } else {
+            panic!(
+                "Could not find value for {} in context {}",
+                orig_val, context
+            );
+        };
+
+        // Check if we have a branch-condition that overrides what we
+        // know about the abstract value. Skip this if we already have
+        // an actually concrete value.
+
+        if abs.is_concrete() {
+            return (val, abs);
         }
-        panic!(
-            "Could not find value for {} in context {}",
-            orig_val, context
-        );
+
+        for cond in &state.conditions {
+            match cond {
+                BlockTargetCond::Eq(v, k) if *v == orig_val => {
+                    return (val, AbstractValue::Concrete(*k));
+                }
+                BlockTargetCond::Ne(v, k) if *v == orig_val => {
+                    return (val, AbstractValue::ConcreteNot(*k));
+                }
+                _ => {}
+            }
+        }
+
+        (val, abs)
     }
 
     fn def_value(
@@ -852,7 +877,8 @@ impl<'a> Evaluator<'a> {
                 }
                 ValueDef::PickOutput(val, idx, ty) => {
                     // Directly transcribe.
-                    let (val, _) = self.use_value(state.context, orig_block, new_block, *val);
+                    let (val, _) =
+                        self.use_value(state.context, orig_block, new_block, *val, &state.flow);
                     Some((
                         ValueDef::PickOutput(val, *idx, *ty),
                         AbstractValue::Runtime(Some(inst)),
@@ -869,7 +895,8 @@ impl<'a> Evaluator<'a> {
                         log::trace!(" * arg {}", arg);
                         let arg = self.generic.resolve_alias(arg);
                         log::trace!(" -> resolves to arg {}", arg);
-                        let (val, abs) = self.use_value(state.context, orig_block, new_block, arg);
+                        let (val, abs) =
+                            self.use_value(state.context, orig_block, new_block, arg, &state.flow);
                         arg_abs_values.push(abs);
                         self.func.arg_pool[arg_values][i] = val;
                     }
@@ -1021,6 +1048,7 @@ impl<'a> Evaluator<'a> {
         _new_block: Block,
         target: Block,
         target_context: Context,
+        condition: BlockTargetCond,
     ) -> Block {
         log::debug!(
             "targeting block {} from {}, in context {}",
@@ -1039,9 +1067,14 @@ impl<'a> Evaluator<'a> {
             target_context
         );
 
+        let mut state = state.flow.clone();
+        if condition != BlockTargetCond::None {
+            state.conditions.insert(condition);
+        }
+
         match self.block_map.entry((target_context, target)) {
             HashEntry::Vacant(_) => {
-                let block = self.create_block(target, target_context, state.flow.clone());
+                let block = self.create_block(target, target_context, state);
                 log::trace!(" -> created block {}", block);
                 self.block_map.insert((target_context, target), block);
                 self.queue_set.insert((target, target_context));
@@ -1051,12 +1084,8 @@ impl<'a> Evaluator<'a> {
             HashEntry::Occupied(o) => {
                 let target_specialized = *o.get();
                 log::trace!(" -> already existing block {}", target_specialized);
-                let changed = self.meet_into_block_entry(
-                    target,
-                    target_context,
-                    target_specialized,
-                    &state.flow,
-                );
+                let changed =
+                    self.meet_into_block_entry(target, target_context, target_specialized, &state);
                 if changed {
                     log::trace!("   -> changed");
                     if self.queue_set.insert((target, target_context)) {
@@ -1089,12 +1118,18 @@ impl<'a> Evaluator<'a> {
             condition,
         );
 
-        let target_block =
-            self.target_block(state, orig_block, new_block, target.block, target_ctx);
+        let target_block = self.target_block(
+            state,
+            orig_block,
+            new_block,
+            target.block,
+            target_ctx,
+            condition,
+        );
 
         for &arg in &target.args {
             let arg = self.generic.resolve_alias(arg);
-            let (val, abs) = self.use_value(state.context, orig_block, new_block, arg);
+            let (val, abs) = self.use_value(state.context, orig_block, new_block, arg, &state.flow);
             log::trace!(
                 "blockparam: block {} context {}: arg {} has val {} abs {:?}",
                 orig_block,
@@ -1135,16 +1170,6 @@ impl<'a> Evaluator<'a> {
                 } else {
                     abs.clone()
                 }
-            } else if let BlockTargetCond::Eq(cond_val, k) = condition
-                && cond_val == orig_arg
-            {
-                log::trace!("Block target condition overrides value for {cond_val} to {k:?}");
-                AbstractValue::Concrete(k)
-            } else if let BlockTargetCond::Ne(cond_val, k) = condition
-                && cond_val == orig_arg
-            {
-                log::trace!("Block target condition overrides value for {cond_val} to not-{k:?}");
-                AbstractValue::ConcreteNot(k)
             } else {
                 abs.clone()
             };
@@ -1192,7 +1217,7 @@ impl<'a> Evaluator<'a> {
             } => {
                 assert!(!state.pending_specialize.is_some());
                 let (cond, abs_cond) =
-                    self.use_value(state.context, orig_block, new_block, orig_cond);
+                    self.use_value(state.context, orig_block, new_block, orig_cond, &state.flow);
                 // Update pending context with new stack if necessary.
                 match abs_cond.as_const_truthy() {
                     Some(true) => Terminator::Br {
@@ -1270,7 +1295,8 @@ impl<'a> Evaluator<'a> {
                         })
                         .collect();
                     let default = targets.pop().unwrap();
-                    let (value, _) = self.use_value(state.context, orig_block, new_block, index);
+                    let (value, _) =
+                        self.use_value(state.context, orig_block, new_block, index, &state.flow);
                     Terminator::Select {
                         value,
                         targets,
@@ -1297,7 +1323,7 @@ impl<'a> Evaluator<'a> {
             } => {
                 assert!(!state.pending_specialize.is_some());
                 let (value, abs_value) =
-                    self.use_value(state.context, orig_block, new_block, value);
+                    self.use_value(state.context, orig_block, new_block, value, &state.flow);
                 if let Some(selector) = abs_value.as_const_u32() {
                     let selector = selector as usize;
                     let target = if selector < targets.len() {
@@ -1348,7 +1374,7 @@ impl<'a> Evaluator<'a> {
                 let values = values
                     .iter()
                     .map(|&value| {
-                        self.use_value(state.context, orig_block, new_block, value)
+                        self.use_value(state.context, orig_block, new_block, value, &state.flow)
                             .0
                     })
                     .collect::<Vec<_>>();
@@ -2304,7 +2330,7 @@ impl<'a> Evaluator<'a> {
                 AbstractValue::ConcreteNot(WasmVal::I64(k2)),
                 AbstractValue::Concrete(WasmVal::I64(k1)),
             ) if op == Operator::I64Eq => {
-                AbstractValue::Concrete(WasmVal::I64(if k1 == k2 { 0 } else { 1 }))
+                AbstractValue::Concrete(WasmVal::I32(if k1 == k2 { 0 } else { 1 }))
             }
 
             (
@@ -2315,7 +2341,7 @@ impl<'a> Evaluator<'a> {
                 AbstractValue::ConcreteNot(WasmVal::I64(k2)),
                 AbstractValue::Concrete(WasmVal::I64(k1)),
             ) if op == Operator::I64Ne => {
-                AbstractValue::Concrete(WasmVal::I64(if k1 == k2 { 1 } else { 0 }))
+                AbstractValue::Concrete(WasmVal::I32(if k1 == k2 { 1 } else { 0 }))
             }
 
             // ptr OP const | const OP ptr (commutative cases)

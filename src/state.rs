@@ -34,6 +34,7 @@
 //! examine the state at a given program point and using a different
 //! context implies leaving the current loop.
 
+use crate::eval::BlockTargetCond;
 use crate::image::Image;
 use crate::value::{AbstractValue, WasmVal};
 use fxhash::FxHashMap as HashMap;
@@ -112,6 +113,8 @@ pub(crate) struct ProgPointState {
     /// Virtualized locals, with (address, data) pairs for spilling
     /// back to memory at sync points.
     pub locals: BTreeMap<u32, (RegValue, RegValue)>,
+    /// Branch conditions, if any. We intersect these on meet.
+    pub conditions: BTreeSet<BlockTargetCond>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -297,6 +300,7 @@ impl ProgPointState {
             globals,
             stack: vec![],
             locals: BTreeMap::new(),
+            conditions: BTreeSet::new(),
         }
     }
 
@@ -330,6 +334,17 @@ impl ProgPointState {
             |(a0, a1), (b0, b1)| (RegValue::meet(a0, b0), RegValue::meet(a1, b1)),
             None,
         );
+
+        let mut to_remove = vec![];
+        for cond in &self.conditions {
+            if !other.conditions.contains(cond) {
+                to_remove.push(cond.clone());
+                changed = true;
+            }
+        }
+        for cond in to_remove {
+            self.conditions.remove(&cond);
+        }
 
         changed
     }
