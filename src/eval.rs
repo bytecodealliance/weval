@@ -172,7 +172,7 @@ pub(crate) fn partially_evaluate<'a>(
                 ) {
                     Ok(result) => result,
                     Err(e) => {
-                        log::warn!("Failed to evaluate function: {e:?}");
+                        println!("Failed to evaluate function: {e:?}");
                         return None;
                     }
                 };
@@ -578,18 +578,21 @@ impl EvalResult {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum BlockTargetCond {
-    #[default]
-    None,
     Eq(Value, WasmVal),
     Ne(Value, WasmVal),
 }
 impl BlockTargetCond {
-    /// Determines what symbolic condition, if any, we can infer from
-    /// a conditional branch on `value != 0` (if `test` is true)
-    /// or `value == 0` (if `test` is false).
-    fn from_value(func: &FunctionBody, value: Value, test: bool) -> BlockTargetCond {
+    /// Determines what symbolic conditions, if any, we can infer from
+    /// a conditional branch on `value != 0` (if `test` is true) or
+    /// `value == 0` (if `test` is false).
+    ///
+    /// For example, when considering the `true` ("then") branch of
+    /// `if v3, ...` and if `v3 = i32eq v1, v2` and if `v2 = i32const
+    /// 100`, then we know that (in the true-branch) `v1 == 100`, and
+    /// we also know that `v3 == 1`.
+    fn from_value(func: &FunctionBody, value: Value, test: bool) -> Vec<BlockTargetCond> {
         let is_const = |value| -> Option<WasmVal> {
             if let ValueDef::Operator(op, ..) = &func.values[value] {
                 match op {
@@ -609,44 +612,66 @@ impl BlockTargetCond {
             func.values[value]
         );
 
-        if let ValueDef::Operator(op, args, _) = &func.values[value] {
-            let args = &func.arg_pool[*args];
-            log::trace!(" -> opcode {op:?} args {args:?}");
-            match (
-                test,
-                op,
-                args.get(0).and_then(|x| is_const(*x)),
-                args.get(1).and_then(|x| is_const(*x)),
-            ) {
-                (true, Operator::I32Eq, Some(k), _) => BlockTargetCond::Eq(args[1], k),
-                (true, Operator::I32Eq, _, Some(k)) => BlockTargetCond::Eq(args[0], k),
-                (true, Operator::I32Ne, Some(k), _) => BlockTargetCond::Ne(args[1], k),
-                (true, Operator::I32Ne, _, Some(k)) => BlockTargetCond::Ne(args[0], k),
-                (true, Operator::I64Eq, Some(k), _) => BlockTargetCond::Eq(args[1], k),
-                (true, Operator::I64Eq, _, Some(k)) => BlockTargetCond::Eq(args[0], k),
-                (true, Operator::I64Ne, Some(k), _) => BlockTargetCond::Ne(args[1], k),
-                (true, Operator::I64Ne, _, Some(k)) => BlockTargetCond::Ne(args[0], k),
+        let mut conds = vec![];
 
-                (false, Operator::I32Eq, Some(k), _) => BlockTargetCond::Ne(args[1], k),
-                (false, Operator::I32Eq, _, Some(k)) => BlockTargetCond::Ne(args[0], k),
-                (false, Operator::I32Ne, Some(k), _) => BlockTargetCond::Eq(args[1], k),
-                (false, Operator::I32Ne, _, Some(k)) => BlockTargetCond::Eq(args[0], k),
-                (false, Operator::I64Eq, Some(k), _) => BlockTargetCond::Ne(args[1], k),
-                (false, Operator::I64Eq, _, Some(k)) => BlockTargetCond::Ne(args[0], k),
-                (false, Operator::I64Ne, Some(k), _) => BlockTargetCond::Eq(args[1], k),
-                (false, Operator::I64Ne, _, Some(k)) => BlockTargetCond::Eq(args[0], k),
-
-                (true, Operator::I32Eqz, _, _) => BlockTargetCond::Eq(args[0], WasmVal::I32(0)),
-                (true, Operator::I64Eqz, _, _) => BlockTargetCond::Eq(args[0], WasmVal::I64(0)),
-
-                (false, Operator::I32Eqz, _, _) => BlockTargetCond::Ne(args[0], WasmVal::I32(0)),
-                (false, Operator::I64Eqz, _, _) => BlockTargetCond::Ne(args[0], WasmVal::I64(0)),
-
-                _ => BlockTargetCond::None,
-            }
+        if test {
+            conds.push(BlockTargetCond::Ne(value, WasmVal::I32(0)));
         } else {
-            BlockTargetCond::None
+            conds.push(BlockTargetCond::Eq(value, WasmVal::I32(0)));
         }
+
+        let const_cond = {
+            if let ValueDef::Operator(op, args, _) = &func.values[value] {
+                let args = &func.arg_pool[*args];
+                log::trace!(" -> opcode {op:?} args {args:?}");
+                match (
+                    test,
+                    op,
+                    args.get(0).and_then(|x| is_const(*x)),
+                    args.get(1).and_then(|x| is_const(*x)),
+                ) {
+                    (true, Operator::I32Eq, Some(k), _) => Some(BlockTargetCond::Eq(args[1], k)),
+                    (true, Operator::I32Eq, _, Some(k)) => Some(BlockTargetCond::Eq(args[0], k)),
+                    (true, Operator::I32Ne, Some(k), _) => Some(BlockTargetCond::Ne(args[1], k)),
+                    (true, Operator::I32Ne, _, Some(k)) => Some(BlockTargetCond::Ne(args[0], k)),
+                    (true, Operator::I64Eq, Some(k), _) => Some(BlockTargetCond::Eq(args[1], k)),
+                    (true, Operator::I64Eq, _, Some(k)) => Some(BlockTargetCond::Eq(args[0], k)),
+                    (true, Operator::I64Ne, Some(k), _) => Some(BlockTargetCond::Ne(args[1], k)),
+                    (true, Operator::I64Ne, _, Some(k)) => Some(BlockTargetCond::Ne(args[0], k)),
+
+                    (false, Operator::I32Eq, Some(k), _) => Some(BlockTargetCond::Ne(args[1], k)),
+                    (false, Operator::I32Eq, _, Some(k)) => Some(BlockTargetCond::Ne(args[0], k)),
+                    (false, Operator::I32Ne, Some(k), _) => Some(BlockTargetCond::Eq(args[1], k)),
+                    (false, Operator::I32Ne, _, Some(k)) => Some(BlockTargetCond::Eq(args[0], k)),
+                    (false, Operator::I64Eq, Some(k), _) => Some(BlockTargetCond::Ne(args[1], k)),
+                    (false, Operator::I64Eq, _, Some(k)) => Some(BlockTargetCond::Ne(args[0], k)),
+                    (false, Operator::I64Ne, Some(k), _) => Some(BlockTargetCond::Eq(args[1], k)),
+                    (false, Operator::I64Ne, _, Some(k)) => Some(BlockTargetCond::Eq(args[0], k)),
+
+                    (true, Operator::I32Eqz, _, _) => {
+                        Some(BlockTargetCond::Eq(args[0], WasmVal::I32(0)))
+                    }
+                    (true, Operator::I64Eqz, _, _) => {
+                        Some(BlockTargetCond::Eq(args[0], WasmVal::I64(0)))
+                    }
+
+                    (false, Operator::I32Eqz, _, _) => {
+                        Some(BlockTargetCond::Ne(args[0], WasmVal::I32(0)))
+                    }
+                    (false, Operator::I64Eqz, _, _) => {
+                        Some(BlockTargetCond::Ne(args[0], WasmVal::I64(0)))
+                    }
+
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        };
+
+        conds.extend(const_cond.into_iter());
+
+        conds
     }
 }
 
@@ -1063,7 +1088,7 @@ impl<'a> Evaluator<'a> {
         _new_block: Block,
         target: Block,
         target_context: Context,
-        condition: BlockTargetCond,
+        conditions: Vec<BlockTargetCond>,
     ) -> Block {
         log::debug!(
             "targeting block {} from {}, in context {}",
@@ -1083,7 +1108,7 @@ impl<'a> Evaluator<'a> {
         );
 
         let mut state = state.flow.clone();
-        if condition != BlockTargetCond::None {
+        for condition in conditions {
             state.conditions.insert(condition);
         }
 
@@ -1120,7 +1145,7 @@ impl<'a> Evaluator<'a> {
         state: &PointState,
         target_ctx: Context,
         target: &BlockTarget,
-        condition: BlockTargetCond,
+        conditions: Vec<BlockTargetCond>,
     ) -> BlockTarget {
         let n_args = self.generic.blocks[orig_block].params.len();
         let mut args = Vec::with_capacity(n_args);
@@ -1130,7 +1155,7 @@ impl<'a> Evaluator<'a> {
             orig_block,
             state.context,
             target,
-            condition,
+            conditions,
         );
 
         let target_block = self.target_block(
@@ -1139,7 +1164,7 @@ impl<'a> Evaluator<'a> {
             new_block,
             target.block,
             target_ctx,
-            condition,
+            conditions,
         );
 
         for &arg in &target.args {
@@ -1242,7 +1267,7 @@ impl<'a> Evaluator<'a> {
                             state,
                             new_context,
                             if_true,
-                            BlockTargetCond::None,
+                            vec![],
                         ),
                     },
                     Some(false) => Terminator::Br {
@@ -1252,13 +1277,13 @@ impl<'a> Evaluator<'a> {
                             state,
                             new_context,
                             if_false,
-                            BlockTargetCond::None,
+                            vec![],
                         ),
                     },
                     None => {
-                        let if_true_cond =
+                        let if_true_conds =
                             BlockTargetCond::from_value(self.generic, orig_cond, true);
-                        let if_false_cond =
+                        let if_false_conds =
                             BlockTargetCond::from_value(self.generic, orig_cond, false);
                         Terminator::CondBr {
                             cond,
@@ -1268,7 +1293,7 @@ impl<'a> Evaluator<'a> {
                                 state,
                                 new_context,
                                 if_true,
-                                if_true_cond,
+                                if_true_conds,
                             ),
                             if_false: self.evaluate_block_target(
                                 orig_block,
@@ -1276,7 +1301,7 @@ impl<'a> Evaluator<'a> {
                                 state,
                                 new_context,
                                 if_false,
-                                if_false_cond,
+                                if_false_conds,
                             ),
                         }
                     }
@@ -1305,7 +1330,7 @@ impl<'a> Evaluator<'a> {
                                 state,
                                 c,
                                 target,
-                                BlockTargetCond::None,
+                                vec![],
                             )
                         })
                         .collect();
@@ -1326,7 +1351,7 @@ impl<'a> Evaluator<'a> {
                             state,
                             new_context,
                             target,
-                            BlockTargetCond::None,
+                            vec![],
                         ),
                     }
                 }
@@ -1353,7 +1378,7 @@ impl<'a> Evaluator<'a> {
                             state,
                             new_context,
                             target,
-                            BlockTargetCond::None,
+                            vec![],
                         ),
                     }
                 } else {
@@ -1366,7 +1391,7 @@ impl<'a> Evaluator<'a> {
                                 state,
                                 new_context,
                                 target,
-                                BlockTargetCond::None,
+                                vec![],
                             )
                         })
                         .collect::<Vec<_>>();
@@ -1376,7 +1401,7 @@ impl<'a> Evaluator<'a> {
                         state,
                         new_context,
                         default,
-                        BlockTargetCond::None,
+                        vec![],
                     );
                     Terminator::Select {
                         value,
