@@ -1089,7 +1089,7 @@ impl<'a> Evaluator<'a> {
         target: Block,
         target_context: Context,
         conditions: Vec<BlockTargetCond>,
-    ) -> Block {
+    ) -> (Block, ProgPointState) {
         log::debug!(
             "targeting block {} from {}, in context {}",
             target,
@@ -1114,12 +1114,12 @@ impl<'a> Evaluator<'a> {
 
         match self.block_map.entry((target_context, target)) {
             HashEntry::Vacant(_) => {
-                let block = self.create_block(target, target_context, state);
+                let block = self.create_block(target, target_context, state.clone());
                 log::trace!(" -> created block {}", block);
                 self.block_map.insert((target_context, target), block);
                 self.queue_set.insert((target, target_context));
                 self.queue.push_back((target, target_context, block));
-                block
+                (block, state)
             }
             HashEntry::Occupied(o) => {
                 let target_specialized = *o.get();
@@ -1133,7 +1133,7 @@ impl<'a> Evaluator<'a> {
                             .push_back((target, target_context, target_specialized));
                     }
                 }
-                target_specialized
+                (target_specialized, state)
             }
         }
     }
@@ -1158,7 +1158,7 @@ impl<'a> Evaluator<'a> {
             conditions,
         );
 
-        let target_block = self.target_block(
+        let (target_block, target_entry_state) = self.target_block(
             state,
             orig_block,
             new_block,
@@ -1169,7 +1169,13 @@ impl<'a> Evaluator<'a> {
 
         for &arg in &target.args {
             let arg = self.generic.resolve_alias(arg);
-            let (val, abs) = self.use_value(state.context, orig_block, new_block, arg, &state.flow);
+            let (val, abs) = self.use_value(
+                state.context,
+                orig_block,
+                new_block,
+                arg,
+                &target_entry_state,
+            );
             log::trace!(
                 "blockparam: block {} context {}: arg {} has val {} abs {:?}",
                 orig_block,
