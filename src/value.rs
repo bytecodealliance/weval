@@ -62,6 +62,12 @@ pub(crate) enum AbstractValue {
     /// A value known *not* to be some concrete value at
     /// specialization time.
     ConcreteNot(WasmVal),
+    /// A value known to be strictly greater than (by unsigned
+    /// comparison) some concrete value at specialization time.
+    ConcreteGtU(WasmVal),
+    /// A value known to be strictly less than (by unsigned
+    /// comparison) some concrete value at specialization time.
+    ConcreteLtU(WasmVal),
     /// A value that points to memory known at specialization time,
     /// with the given offset.
     ConcreteMemory(MemoryBufferIndex, u32),
@@ -103,7 +109,11 @@ impl AbstractValue {
 
     pub(crate) fn is_concrete(&self) -> bool {
         match self {
-            AbstractValue::Top | AbstractValue::Runtime(_) | AbstractValue::ConcreteNot(_) => false,
+            AbstractValue::Top
+            | AbstractValue::Runtime(_)
+            | AbstractValue::ConcreteNot(_)
+            | AbstractValue::ConcreteGtU(_)
+            | AbstractValue::ConcreteLtU(_) => false,
             AbstractValue::Concrete(_)
             | AbstractValue::ConcreteMemory(..)
             | AbstractValue::StaticMemory(_) => true,

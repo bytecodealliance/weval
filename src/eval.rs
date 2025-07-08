@@ -142,6 +142,12 @@ pub(crate) fn partially_evaluate<'a>(
                 f.display_verbose("| ", Some(&module))
             );
 
+            f.optimize(&waffle::OptOptions {
+                gvn: true,
+                cprop: false,
+                redundant_blockparams: true,
+            });
+
             split_blocks_at_intrinsic_calls(&mut f, &intrinsics);
 
             f.recompute_edges();
@@ -582,6 +588,8 @@ impl EvalResult {
 pub(crate) enum BlockTargetCond {
     Eq(Value, WasmVal),
     Ne(Value, WasmVal),
+    LtU(Value, WasmVal),
+    GtU(Value, WasmVal),
 }
 impl BlockTargetCond {
     /// Determines what symbolic conditions, if any, we can infer from
@@ -660,6 +668,56 @@ impl BlockTargetCond {
                     }
                     (false, Operator::I64Eqz, _, _) => {
                         Some(BlockTargetCond::Ne(args[0], WasmVal::I64(0)))
+                    }
+
+                    (true, Operator::I32LtU, _, Some(WasmVal::I32(k))) => {
+                        Some(BlockTargetCond::LtU(args[0], WasmVal::I32(k)))
+                    }
+                    (true, Operator::I32LeU, _, Some(WasmVal::I32(k))) if k < u32::MAX => {
+                        Some(BlockTargetCond::LtU(args[0], WasmVal::I32(k + 1)))
+                    }
+                    (true, Operator::I32GtU, _, Some(WasmVal::I32(k))) => {
+                        Some(BlockTargetCond::GtU(args[0], WasmVal::I32(k)))
+                    }
+                    (true, Operator::I32GeU, _, Some(WasmVal::I32(k))) if k > 0 => {
+                        Some(BlockTargetCond::GtU(args[0], WasmVal::I32(k - 1)))
+                    }
+                    (true, Operator::I64LtU, _, Some(WasmVal::I64(k))) => {
+                        Some(BlockTargetCond::LtU(args[0], WasmVal::I64(k)))
+                    }
+                    (true, Operator::I64LeU, _, Some(WasmVal::I64(k))) if k < u64::MAX => {
+                        Some(BlockTargetCond::LtU(args[0], WasmVal::I64(k + 1)))
+                    }
+                    (true, Operator::I64GtU, _, Some(WasmVal::I64(k))) => {
+                        Some(BlockTargetCond::GtU(args[0], WasmVal::I64(k)))
+                    }
+                    (true, Operator::I64GeU, _, Some(WasmVal::I64(k))) if k > 0 => {
+                        Some(BlockTargetCond::GtU(args[0], WasmVal::I64(k - 1)))
+                    }
+
+                    (false, Operator::I32LtU, _, Some(WasmVal::I32(k))) if k > 0 => {
+                        Some(BlockTargetCond::GtU(args[0], WasmVal::I32(k - 1)))
+                    }
+                    (false, Operator::I32LeU, _, Some(WasmVal::I32(k))) => {
+                        Some(BlockTargetCond::GtU(args[0], WasmVal::I32(k)))
+                    }
+                    (false, Operator::I32GtU, _, Some(WasmVal::I32(k))) if k < u32::MAX => {
+                        Some(BlockTargetCond::LtU(args[0], WasmVal::I32(k + 1)))
+                    }
+                    (false, Operator::I32GeU, _, Some(WasmVal::I32(k))) => {
+                        Some(BlockTargetCond::LtU(args[0], WasmVal::I32(k - 1)))
+                    }
+                    (false, Operator::I64LtU, _, Some(WasmVal::I64(k))) if k > 0 => {
+                        Some(BlockTargetCond::GtU(args[0], WasmVal::I64(k - 1)))
+                    }
+                    (false, Operator::I64LeU, _, Some(WasmVal::I64(k))) => {
+                        Some(BlockTargetCond::GtU(args[0], WasmVal::I64(k)))
+                    }
+                    (false, Operator::I64GtU, _, Some(WasmVal::I64(k))) if k < u64::MAX => {
+                        Some(BlockTargetCond::LtU(args[0], WasmVal::I64(k + 1)))
+                    }
+                    (false, Operator::I64GeU, _, Some(WasmVal::I64(k))) => {
+                        Some(BlockTargetCond::LtU(args[0], WasmVal::I64(k - 1)))
                     }
 
                     _ => None,
@@ -826,6 +884,12 @@ impl<'a> Evaluator<'a> {
                 }
                 BlockTargetCond::Ne(v, k) if *v == orig_val => {
                     return (val, AbstractValue::ConcreteNot(*k));
+                }
+                BlockTargetCond::LtU(v, k) if *v == orig_val => {
+                    return (val, AbstractValue::ConcreteLtU(*k));
+                }
+                BlockTargetCond::GtU(v, k) if *v == orig_val => {
+                    return (val, AbstractValue::ConcreteGtU(*k));
                 }
                 _ => {}
             }
@@ -2118,8 +2182,8 @@ impl<'a> Evaluator<'a> {
         x: &AbstractValue,
         y: &AbstractValue,
     ) -> AbstractValue {
-        match (x, y) {
-            (AbstractValue::Concrete(v1), AbstractValue::Concrete(v2)) => {
+        match (op, x, y) {
+            (_, AbstractValue::Concrete(v1), AbstractValue::Concrete(v2)) => {
                 match (op, v1, v2) {
                     // 32-bit comparisons.
                     (Operator::I32Eq, WasmVal::I32(k1), WasmVal::I32(k2)) => {
@@ -2347,72 +2411,184 @@ impl<'a> Evaluator<'a> {
             }
 
             (
+                Operator::I32Eq,
                 AbstractValue::Concrete(WasmVal::I32(k1)),
                 AbstractValue::ConcreteNot(WasmVal::I32(k2)),
             )
             | (
+                Operator::I32Eq,
                 AbstractValue::ConcreteNot(WasmVal::I32(k2)),
                 AbstractValue::Concrete(WasmVal::I32(k1)),
-            ) if op == Operator::I32Eq && k1 == k2 => AbstractValue::Concrete(WasmVal::I32(0)),
+            ) if k1 == k2 => AbstractValue::Concrete(WasmVal::I32(0)),
 
             (
+                Operator::I32Ne,
                 AbstractValue::Concrete(WasmVal::I32(k1)),
                 AbstractValue::ConcreteNot(WasmVal::I32(k2)),
             )
             | (
+                Operator::I32Ne,
                 AbstractValue::ConcreteNot(WasmVal::I32(k2)),
                 AbstractValue::Concrete(WasmVal::I32(k1)),
-            ) if op == Operator::I32Ne && k1 == k2 => AbstractValue::Concrete(WasmVal::I32(1)),
+            ) if k1 == k2 => AbstractValue::Concrete(WasmVal::I32(1)),
 
             (
+                Operator::I64Eq,
                 AbstractValue::Concrete(WasmVal::I64(k1)),
                 AbstractValue::ConcreteNot(WasmVal::I64(k2)),
             )
             | (
+                Operator::I64Eq,
                 AbstractValue::ConcreteNot(WasmVal::I64(k2)),
                 AbstractValue::Concrete(WasmVal::I64(k1)),
-            ) if op == Operator::I64Eq && k1 == k2 => AbstractValue::Concrete(WasmVal::I32(0)),
+            ) if k1 == k2 => AbstractValue::Concrete(WasmVal::I32(0)),
 
             (
+                Operator::I64Ne,
                 AbstractValue::Concrete(WasmVal::I64(k1)),
                 AbstractValue::ConcreteNot(WasmVal::I64(k2)),
             )
             | (
+                Operator::I64Ne,
                 AbstractValue::ConcreteNot(WasmVal::I64(k2)),
                 AbstractValue::Concrete(WasmVal::I64(k1)),
-            ) if op == Operator::I64Ne && k1 == k2 => AbstractValue::Concrete(WasmVal::I32(1)),
+            ) if k1 == k2 => AbstractValue::Concrete(WasmVal::I32(1)),
+
+            (
+                Operator::I32GtU,
+                AbstractValue::ConcreteGtU(WasmVal::I32(k1)),
+                AbstractValue::Concrete(WasmVal::I32(k2)),
+            )
+            | (
+                Operator::I32LtU,
+                AbstractValue::Concrete(WasmVal::I32(k2)),
+                AbstractValue::ConcreteGtU(WasmVal::I32(k1)),
+            ) => AbstractValue::Concrete(WasmVal::I32(if k1 >= k2 { 1 } else { 0 })),
+
+            (
+                Operator::I32GeU,
+                AbstractValue::ConcreteGtU(WasmVal::I32(k1)),
+                AbstractValue::Concrete(WasmVal::I32(k2)),
+            )
+            | (
+                Operator::I32LeU,
+                AbstractValue::Concrete(WasmVal::I32(k2)),
+                AbstractValue::ConcreteGtU(WasmVal::I32(k1)),
+            ) => AbstractValue::Concrete(WasmVal::I32(if *k1 >= k2.saturating_sub(1) {
+                1
+            } else {
+                0
+            })),
+
+            (
+                Operator::I32LtU,
+                AbstractValue::ConcreteLtU(WasmVal::I32(k1)),
+                AbstractValue::Concrete(WasmVal::I32(k2)),
+            )
+            | (
+                Operator::I32GtU,
+                AbstractValue::Concrete(WasmVal::I32(k2)),
+                AbstractValue::ConcreteLtU(WasmVal::I32(k1)),
+            ) => AbstractValue::Concrete(WasmVal::I32(if k1 <= k2 { 1 } else { 0 })),
+            (
+                Operator::I32LeU,
+                AbstractValue::ConcreteLtU(WasmVal::I32(k1)),
+                AbstractValue::Concrete(WasmVal::I32(k2)),
+            )
+            | (
+                Operator::I32GeU,
+                AbstractValue::Concrete(WasmVal::I32(k2)),
+                AbstractValue::ConcreteLtU(WasmVal::I32(k1)),
+            ) => AbstractValue::Concrete(WasmVal::I32(if *k1 >= k2.saturating_add(1) {
+                1
+            } else {
+                0
+            })),
+
+            (
+                Operator::I64GtU,
+                AbstractValue::ConcreteGtU(WasmVal::I64(k1)),
+                AbstractValue::Concrete(WasmVal::I64(k2)),
+            )
+            | (
+                Operator::I64LtU,
+                AbstractValue::Concrete(WasmVal::I64(k2)),
+                AbstractValue::ConcreteGtU(WasmVal::I64(k1)),
+            ) => AbstractValue::Concrete(WasmVal::I32(if k1 >= k2 { 1 } else { 0 })),
+            (
+                Operator::I64GeU,
+                AbstractValue::ConcreteGtU(WasmVal::I64(k1)),
+                AbstractValue::Concrete(WasmVal::I64(k2)),
+            )
+            | (
+                Operator::I64LeU,
+                AbstractValue::Concrete(WasmVal::I64(k2)),
+                AbstractValue::ConcreteGtU(WasmVal::I64(k1)),
+            ) => AbstractValue::Concrete(WasmVal::I32(if *k1 >= k2.saturating_sub(1) {
+                1
+            } else {
+                0
+            })),
+            (
+                Operator::I64LtU,
+                AbstractValue::ConcreteLtU(WasmVal::I64(k1)),
+                AbstractValue::Concrete(WasmVal::I64(k2)),
+            )
+            | (
+                Operator::I64GtU,
+                AbstractValue::Concrete(WasmVal::I64(k2)),
+                AbstractValue::ConcreteLtU(WasmVal::I64(k1)),
+            ) => AbstractValue::Concrete(WasmVal::I32(if k1 <= k2 { 1 } else { 0 })),
+            (
+                Operator::I64LeU,
+                AbstractValue::ConcreteLtU(WasmVal::I64(k1)),
+                AbstractValue::Concrete(WasmVal::I64(k2)),
+            )
+            | (
+                Operator::I64GeU,
+                AbstractValue::Concrete(WasmVal::I64(k2)),
+                AbstractValue::ConcreteLtU(WasmVal::I64(k1)),
+            ) => AbstractValue::Concrete(WasmVal::I32(if *k1 >= k2.saturating_add(1) {
+                1
+            } else {
+                0
+            })),
 
             // ptr OP const | const OP ptr (commutative cases)
             (
+                Operator::I32Add,
                 AbstractValue::ConcreteMemory(buf, offset),
                 AbstractValue::Concrete(WasmVal::I32(k)),
             )
             | (
+                Operator::I32Add,
                 AbstractValue::Concrete(WasmVal::I32(k)),
                 AbstractValue::ConcreteMemory(buf, offset),
-            ) if op == Operator::I32Add => {
-                AbstractValue::ConcreteMemory(buf.clone(), offset.wrapping_add(*k))
-            }
-            (AbstractValue::StaticMemory(addr), AbstractValue::Concrete(WasmVal::I32(k)))
-            | (AbstractValue::Concrete(WasmVal::I32(k)), AbstractValue::StaticMemory(addr))
-                if op == Operator::I32Add =>
-            {
-                AbstractValue::StaticMemory(addr.wrapping_add(*k))
-            }
+            ) => AbstractValue::ConcreteMemory(buf.clone(), offset.wrapping_add(*k)),
+            (
+                Operator::I32Add,
+                AbstractValue::StaticMemory(addr),
+                AbstractValue::Concrete(WasmVal::I32(k)),
+            )
+            | (
+                Operator::I32Add,
+                AbstractValue::Concrete(WasmVal::I32(k)),
+                AbstractValue::StaticMemory(addr),
+            ) => AbstractValue::StaticMemory(addr.wrapping_add(*k)),
 
             // ptr OP const (non-commutative cases)
             (
+                Operator::I32Sub,
                 AbstractValue::ConcreteMemory(buf, offset),
                 AbstractValue::Concrete(WasmVal::I32(k)),
-            ) if op == Operator::I32Sub => {
-                AbstractValue::ConcreteMemory(buf.clone(), offset.wrapping_sub(*k))
-            }
+            ) => AbstractValue::ConcreteMemory(buf.clone(), offset.wrapping_sub(*k)),
 
             // ptr OP ptr
             (
+                Operator::I32Sub,
                 AbstractValue::ConcreteMemory(buf1, offset1),
                 AbstractValue::ConcreteMemory(buf2, offset2),
-            ) if op == Operator::I32Sub && buf1 == buf2 => {
+            ) if buf1 == buf2 => {
                 AbstractValue::Concrete(WasmVal::I32(offset1.wrapping_sub(*offset2)))
             }
 
