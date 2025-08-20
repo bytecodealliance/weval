@@ -60,7 +60,7 @@ See the API in `include/weval.h` for more.
 
 The theory behind weval is described in the author's blog post
 [here](https://cfallin.org/blog/2024/08/28/weval/), covering partial evaluation
-and Futumura projections as well as how weval's main transform works.
+and Futamura projections as well as how weval's main transform works.
 
 ### Uses
 
