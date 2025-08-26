@@ -3,7 +3,7 @@
 use crate::cache::{Cache, CacheData};
 use crate::directive::{Directive, DirectiveArgs};
 use crate::image::Image;
-use crate::intrinsics::{Intrinsics, find_global_data_by_exported_func};
+use crate::intrinsics::{find_global_data_by_exported_func, Intrinsics};
 use crate::liveness::Liveness;
 use crate::state::*;
 use crate::stats::SpecializationStats;
@@ -12,12 +12,12 @@ use fxhash::FxHashMap as HashMap;
 use fxhash::FxHashSet as HashSet;
 use rayon::prelude::*;
 use std::borrow::Cow;
-use std::collections::{BTreeSet, VecDeque, hash_map::Entry as HashEntry};
+use std::collections::{hash_map::Entry as HashEntry, BTreeSet, VecDeque};
 use std::sync::Mutex;
 use waffle::{
-    Block, BlockDef, BlockTarget, FuncDecl, FunctionBody, Memory, MemoryArg, Module, Operator,
-    Signature, SourceLoc, Table, Terminator, Type, Value, ValueDef, cfg::CFGInfo,
-    entity::EntityRef, entity::PerEntity, pool::ListRef,
+    cfg::CFGInfo, entity::EntityRef, entity::PerEntity, pool::ListRef, Block, BlockDef,
+    BlockTarget, FuncDecl, FunctionBody, Memory, MemoryArg, Module, Operator, Signature, SourceLoc,
+    Table, Terminator, Type, Value, ValueDef,
 };
 
 struct Evaluator<'a> {
@@ -1633,10 +1633,16 @@ impl<'a> Evaluator<'a> {
                         panic!("Specialization reached a point it shouldn't have!");
                     }
                     EvalResult::Elide
-                } else if Some(function_index) == self.intrinsics.reachable_at_depth {
-                    let depth = abs[0].as_const_u32().unwrap();
-                    let actual_depth = self.state.contexts.depth(state.context);
-                    if depth != actual_depth {
+                } else if Some(function_index) == self.intrinsics.exit_path {
+                    log::trace!("exit_path intrinsic: context {}", state.context.index());
+                    state.flow.exit_path = true;
+                    EvalResult::Elide
+                } else if Some(function_index) == self.intrinsics.stop_exit_path {
+                    log::trace!(
+                        "stop_exit_path intrinsic: context {}",
+                        state.context.index()
+                    );
+                    if state.flow.exit_path {
                         EvalResult::Unreachable
                     } else {
                         EvalResult::Elide

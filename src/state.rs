@@ -128,6 +128,10 @@ pub(crate) struct ProgPointState {
     pub locals: BTreeMap<u32, (RegValue, RegValue)>,
     /// Branch conditions, if any. We intersect these on meet.
     pub conditions: BTreeSet<BlockTargetCond>,
+    /// Whether this is a "tainted exit path" to avoid re-entering an
+    /// interpreter loop due to statically-unresolvable
+    /// value-dependent control flow.
+    pub exit_path: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -314,6 +318,7 @@ impl ProgPointState {
             stack: vec![],
             locals: BTreeMap::new(),
             conditions: BTreeSet::new(),
+            exit_path: false,
         }
     }
 
@@ -358,6 +363,9 @@ impl ProgPointState {
         for cond in to_remove {
             self.conditions.remove(&cond);
         }
+
+        changed |= !self.exit_path && other.exit_path;
+        self.exit_path |= other.exit_path;
 
         changed
     }
