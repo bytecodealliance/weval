@@ -376,6 +376,7 @@ fn partially_evaluate_func(
         redundant_blockparams: true,
     });
     crate::dce::run(&mut evaluator.func, &cfg);
+    evaluator.func.recompute_edges();
 
     accumulate_stats_from_func(&mut evaluator.stats, &evaluator.func);
 
