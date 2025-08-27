@@ -401,6 +401,7 @@ fn split_blocks_at_intrinsic_calls(func: &mut FunctionBody, intrinsics: &Intrins
                 if Some(*function_index) == intrinsics.specialize_value
                     || Some(*function_index) == intrinsics.pop_context
                     || Some(*function_index) == intrinsics.push_context
+                    || Some(*function_index) == intrinsics.exit_path
                 {
                     log::trace!(
                         "Splitting from block {} at weval intrinsic for inst {}",
@@ -1924,7 +1925,7 @@ impl<'a> Evaluator<'a> {
     fn abstract_eval_regs(
         &mut self,
         _inst: Value,
-        _new_block: Block,
+        new_block: Block,
         op: Operator,
         abs: &[AbstractValue],
         vals: ListRef<Value>,
@@ -1951,7 +1952,17 @@ impl<'a> Evaluator<'a> {
                         );
                     }
                     None => {
-                        anyhow::bail!("Specialization register {} not set", idx);
+                        log::trace!("Specialization register {} not set", idx);
+                        let zero = self.func.add_op(
+                            new_block,
+                            Operator::I64Const { value: 0 },
+                            &[],
+                            &[Type::I32],
+                        );
+                        return Ok(EvalResult::Alias(
+                            AbstractValue::Concrete(WasmVal::I64(0)),
+                            zero,
+                        ));
                     }
                 }
             }
