@@ -36,15 +36,15 @@ jobs:
     - name: Download and install wasi-sdk
       run: |
         cd /opt
-        wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-24/wasi-sdk-24.0-x86_64-linux.tar.gz
-        tar zxvf wasi-sdk-24.0-x86_64-linux.tar.gz
-        ln -s wasi-sdk-24.0-x86_64-linux wasi-sdk
+        wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-30/wasi-sdk-30.0-x86_64-linux.tar.gz
+        tar zxvf wasi-sdk-30.0-x86_64-linux.tar.gz
+        ln -s wasi-sdk-30.0-x86_64-linux wasi-sdk
     - name: Download and install wasmtime
       run: |
         cd /opt
-        wget https://github.com/bytecodealliance/wasmtime/releases/download/v25.0.2/wasmtime-v25.0.2-x86_64-linux.tar.xz
-        tar Jxvf wasmtime-v25.0.2-x86_64-linux.tar.xz
-        ln -s `pwd`/wasmtime-v25.0.2-x86_64-linux/wasmtime /usr/local/bin/
+        wget https://github.com/bytecodealliance/wasmtime/releases/download/v41.0.3/wasmtime-v41.0.3-x86_64-linux.tar.xz
+        tar Jxvf wasmtime-v41.0.3-x86_64-linux.tar.xz
+        ln -s `pwd`/wasmtime-v41.0.3-x86_64-linux/wasmtime /usr/local/bin/
     - name: Build
       run: cargo build --release
     - name: Build and run base 'simple' test

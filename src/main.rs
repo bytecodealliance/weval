@@ -3,6 +3,9 @@
 use std::path::PathBuf;
 use structopt::StructOpt;
 
+use wasmtime::*;
+use wasmtime_wasi::p1;
+
 mod cache;
 mod constant_offsets;
 mod dce;
@@ -40,7 +43,7 @@ pub enum Command {
         preopens: Vec<PathBuf>,
 
         /// Name of the Wizer initialization function to call.
-        #[structopt(long = "init-func", default_value = "wizer.initialize")]
+        #[structopt(long = "init-func", default_value = "wizer-initialize")]
         init_func: String,
 
         /// Cache file to use.
@@ -97,17 +100,54 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn wizen(raw_bytes: Vec<u8>, preopens: Vec<PathBuf>, init_func: String) -> anyhow::Result<Vec<u8>> {
-    let mut w = wizer::Wizer::new();
-    w.allow_wasi(true)?;
-    w.init_func(init_func);
-    w.inherit_env(true);
-    for preopen in preopens {
-        w.dir(&preopen);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+
+    runtime.block_on(wizen_impl(raw_bytes, preopens, init_func))
+}
+
+async fn wizen_impl(
+    raw_bytes: Vec<u8>,
+    preopens: Vec<PathBuf>,
+    init_func: String,
+) -> anyhow::Result<Vec<u8>> {
+    let mut config = Config::new();
+    config.async_support(true);
+    config.wasm_bulk_memory(true);
+    let engine = Engine::new(&config)?;
+
+    let mut wasi_ctx = wasmtime_wasi::WasiCtxBuilder::new();
+    wasi_ctx.inherit_stdio();
+    wasi_ctx.inherit_env();
+    for preopen in &preopens {
+        wasi_ctx.preopened_dir(
+            preopen,
+            preopen.to_str().unwrap_or("."),
+            wasmtime_wasi::DirPerms::all(),
+            wasmtime_wasi::FilePerms::all(),
+        )?;
     }
-    w.wasm_bulk_memory(true);
-    w.preload_bytes("weval", STUBS.as_bytes().to_vec())?;
-    w.func_rename("_start", "wizer.resume");
-    w.run(&raw_bytes[..])
+
+    let mut store = Store::new(&engine, wasi_ctx.build_p1());
+    let mut linker = Linker::new(&engine);
+    p1::add_to_linker_async(&mut linker, |cx| cx)?;
+
+    // Preload the weval stubs module.
+    let stubs_module = Module::new(&engine, STUBS)?;
+    let stubs_instance = linker.instantiate_async(&mut store, &stubs_module).await?;
+    linker.instance(&mut store, "weval", stubs_instance)?;
+
+    let mut wizer = wasmtime_wizer::Wizer::new();
+    wizer.init_func(&init_func);
+    wizer.func_rename("_start", "wizer.resume");
+
+    wizer
+        .run(&mut store, &raw_bytes, async |store, module| {
+            linker.define_unknown_imports_as_traps(module)?;
+            linker.instantiate_async(store, module).await
+        })
+        .await
 }
 
 /// Weval a wasm.
