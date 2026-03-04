@@ -189,7 +189,7 @@ impl Rewrite {
                                     out_func_idx += 1;
                                 }
                             }
-                            ty => anyhow::bail!("import type {:?} not supported", ty),
+                            ty => anyhow::bail!("import type {ty:?} not supported"),
                         }
                     }
 
@@ -208,7 +208,7 @@ impl Rewrite {
                             wasmparser::ValType::F32 => wasm_encoder::ValType::F32,
                             wasmparser::ValType::F64 => wasm_encoder::ValType::F64,
                             wasmparser::ValType::V128 => wasm_encoder::ValType::V128,
-                            ty => panic!("Unsupported global type: {:?}", ty),
+                            ty => panic!("Unsupported global type: {ty:?}"),
                         };
                         let ty = wasm_encoder::GlobalType {
                             val_type,
@@ -236,7 +236,7 @@ impl Rewrite {
                                 }
                                 wasmparser::Operator::End => {}
                                 op => {
-                                    panic!("Unsupported operator in global initializer: {:?}", op)
+                                    panic!("Unsupported operator in global initializer: {op:?}")
                                 }
                             }
                         }
