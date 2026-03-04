@@ -59,7 +59,7 @@ pub fn run(func: &mut FunctionBody, cfg: &CFGInfo) {
     }
 
     while let Some(block) = workqueue.pop_front() {
-        log::trace!("processing {}", block);
+        log::trace!("processing {block}");
         workqueue_set.remove(&block);
 
         for &inst in &func.blocks[block].insts {
@@ -75,7 +75,7 @@ pub fn run(func: &mut FunctionBody, cfg: &CFGInfo) {
 
                 ValueDef::Operator(op, args, tys) if tys.len() == 1 => {
                     let args = &func.arg_pool[*args];
-                    log::trace!(" -> args = {:?}", args);
+                    log::trace!(" -> args = {args:?}");
 
                     match op {
                         Operator::I32Const { value } => {
@@ -231,10 +231,7 @@ pub fn run(func: &mut FunctionBody, cfg: &CFGInfo) {
             offset_base_const.insert(value, k);
             offset_base.insert(value, add);
             log::trace!(
-                "created common base {} (and const {}) associated with offset-from value {}",
-                k,
-                add,
-                value
+                "created common base {k} (and const {add}) associated with offset-from value {value}"
             );
         } else {
             offset_base.insert(value, value);
@@ -244,7 +241,7 @@ pub fn run(func: &mut FunctionBody, cfg: &CFGInfo) {
     // Now, for each value that's an Offset, rewrite it to an add
     // instruction.
     for (block, block_def) in func.blocks.entries_mut() {
-        log::trace!("rewriting in block {}", block);
+        log::trace!("rewriting in block {block}");
         let mut computed_offsets: FxHashMap<AbsValue, Value> = FxHashMap::default();
         let mut new_insts = vec![];
 
@@ -265,13 +262,13 @@ pub fn run(func: &mut FunctionBody, cfg: &CFGInfo) {
                     let args = &func.arg_pool[*args];
                     let tys = *tys;
                     let addr = args[0];
-                    log::trace!("load/store with addr {}", addr);
+                    log::trace!("load/store with addr {addr}");
                     if let AbsValue::Offset(base, this_offset) = values[addr] {
-                        log::trace!("inst {} is a load/store with addr that is offset from base {}; pushing offset into instruction", inst, base);
+                        log::trace!("inst {inst} is a load/store with addr that is offset from base {base}; pushing offset into instruction");
                         // Update the offset embedded in the Operator
                         // and use the `base` value instead as the
                         // address arg.
-                        let mut op = op.clone();
+                        let mut op = *op;
                         let mut args = args.iter().cloned().collect::<Vec<_>>();
                         let common_base = *offset_base.get(&base).unwrap();
                         let offset = *min_offset_from.get(&base).unwrap();
@@ -326,12 +323,12 @@ pub fn run(func: &mut FunctionBody, cfg: &CFGInfo) {
                         let add = func.values.push(ValueDef::Operator(op, args, i32_ty));
                         func.source_locs[k] = func.source_locs[inst];
                         func.source_locs[add] = func.source_locs[inst];
-                        log::trace!(" -> recomputed as {}", add);
+                        log::trace!(" -> recomputed as {add}");
                         new_insts.push(add);
                         add
                     }
                 });
-                log::trace!(" -> rewrite to {}", computed_offset);
+                log::trace!(" -> rewrite to {computed_offset}");
                 func.values[inst] = ValueDef::Alias(computed_offset);
             } else {
                 new_insts.push(inst);

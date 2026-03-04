@@ -152,7 +152,7 @@ pub(crate) fn find_global_data_by_exported_func(module: &Module, name: &str) -> 
     // I32Add of a global (the GOT memory base) and an I32Const.
 
     let extract_const_value = |value| match &body.values[value] {
-        ValueDef::Operator(Operator::I32Const { value }, _, _) => Some(*value as u32),
+        ValueDef::Operator(Operator::I32Const { value }, _, _) => Some(*value),
         ValueDef::Operator(Operator::I32Add, args, _) => {
             let args = &body.arg_pool[*args];
             match (&body.values[args[0]], &body.values[args[1]]) {

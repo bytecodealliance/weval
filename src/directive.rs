@@ -74,7 +74,7 @@ pub(crate) fn collect(module: &Module, im: &mut Image) -> anyhow::Result<Vec<Dir
         }
     };
 
-    log::info!("weval request list head at {:#x}", pending_head_addr);
+    log::info!("weval request list head at {pending_head_addr:#x}");
 
     let heap = match im.main_heap {
         Some(heap) => heap,
@@ -115,7 +115,7 @@ fn decode_weval_req(im: &Image, heap: Memory, head: u32) -> anyhow::Result<Direc
     let func_index_out_addr = im.read_u32(heap, head + 28)?;
     let args = im.read_slice(heap, arg_ptr, arg_len)?.to_vec();
 
-    log::trace!("directive: args {:#x} len {:#x}", arg_ptr, arg_len);
+    log::trace!("directive: args {arg_ptr:#x} len {arg_len:#x}");
 
     Ok(Directive {
         user_id,
@@ -195,7 +195,7 @@ impl DirectiveArgs {
                             16 + padded_len,
                         )
                     }
-                    _ => anyhow::bail!("Invalid type: {}", ty),
+                    _ => anyhow::bail!("Invalid type: {ty}"),
                 }
             } else {
                 (AbstractValue::Runtime(None), None, 16)

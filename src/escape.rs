@@ -28,32 +28,28 @@ fn shadow_stack_escapes(func: &FunctionBody, cfg: &CFGInfo) -> EscapeAnalysisRes
                 | &ValueDef::Operator(Operator::GlobalSet { global_index }, _, _)
                     if global_index.index() == 0 =>
                 {
-                    log::trace!("tainted because global.get/set: {}", inst);
+                    log::trace!("tainted because global.get/set: {inst}");
                     tainted.insert(inst);
                 }
                 &ValueDef::Operator(Operator::I32Add, args, _)
                 | &ValueDef::Operator(Operator::I32Sub, args, _) => {
                     let args = &func.arg_pool[args];
                     if args.iter().any(|arg| tainted.contains(arg)) {
-                        log::trace!("tainted because of arg: {}", inst);
+                        log::trace!("tainted because of arg: {inst}");
                         tainted.insert(inst);
                     }
                 }
                 &ValueDef::Operator(_, args, _) => {
                     let args = &func.arg_pool[args];
                     if args.iter().any(|arg| tainted.contains(arg)) {
-                        log::trace!("shadow stack escape due to inst {}", inst);
+                        log::trace!("shadow stack escape due to inst {inst}");
                         return EscapeAnalysisResult::Escapes;
                     }
                 }
                 &ValueDef::PickOutput(val, _, _) | &ValueDef::Alias(val)
                     if tainted.contains(&val) =>
                 {
-                    log::trace!(
-                        "taint on {} propagates to {} because of alias or pick",
-                        val,
-                        inst
-                    );
+                    log::trace!("taint on {val} propagates to {inst} because of alias or pick");
                     tainted.insert(inst);
                 }
                 _ => {}
@@ -63,10 +59,7 @@ fn shadow_stack_escapes(func: &FunctionBody, cfg: &CFGInfo) -> EscapeAnalysisRes
         match &func.blocks[block].terminator {
             &Terminator::CondBr { cond, .. } | &Terminator::Select { value: cond, .. } => {
                 if tainted.contains(&cond) {
-                    log::trace!(
-                        "taint on input to conditional branch causes escape: {}",
-                        cond
-                    );
+                    log::trace!("taint on input to conditional branch causes escape: {cond}");
                     return EscapeAnalysisResult::Escapes;
                 }
             }
@@ -111,7 +104,7 @@ fn shadow_stack_escapes(func: &FunctionBody, cfg: &CFGInfo) -> EscapeAnalysisRes
 
 pub(crate) fn remove_shadow_stack_if_non_escaping(func: &mut FunctionBody, cfg: &CFGInfo) {
     if let EscapeAnalysisResult::NonEscaping(values_to_remove) = shadow_stack_escapes(func, &cfg) {
-        log::trace!("removing shadow stack operations: {:?}", values_to_remove);
+        log::trace!("removing shadow stack operations: {values_to_remove:?}");
         let ty_u32 = func.type_pool.single(Type::I32);
         let const_zero = func.values.push(ValueDef::Operator(
             Operator::I32Const { value: 0 },

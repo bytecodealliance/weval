@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(dead_code, reason = "")]
 
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -205,7 +205,7 @@ pub fn weval(
 
     // Collect directives.
     let directives = directive::collect(&module, &mut im)?;
-    log::debug!("Directives: {:?}", directives);
+    log::debug!("Directives: {directives:?}");
 
     // Make sure IR output directory exists.
     if let Some(dir) = &output_ir {

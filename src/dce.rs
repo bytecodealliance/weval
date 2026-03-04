@@ -48,7 +48,7 @@ fn scan_block(func: &FunctionBody, block: Block, used: &mut FxHashSet<Value>) ->
         changed
     };
 
-    log::trace!("DCE: scanning {}", block);
+    log::trace!("DCE: scanning {block}");
     let mut changed = false;
 
     func.blocks[block].terminator.visit_targets(|target| {
@@ -57,10 +57,7 @@ fn scan_block(func: &FunctionBody, block: Block, used: &mut FxHashSet<Value>) ->
         for (&arg, &(_, param)) in target.args.iter().zip(succ_params.iter()) {
             if used.contains(&param) {
                 log::trace!(
-                    "  -> succ blockparam {} is used; marking arg {} used from term on {}",
-                    param,
-                    arg,
-                    block,
+                    "  -> succ blockparam {param} is used; marking arg {arg} used from term on {block}",
                 );
                 changed |= mark_used(used, arg);
             }
@@ -68,12 +65,12 @@ fn scan_block(func: &FunctionBody, block: Block, used: &mut FxHashSet<Value>) ->
     });
     match &func.blocks[block].terminator {
         Terminator::CondBr { cond: value, .. } | Terminator::Select { value, .. } => {
-            log::trace!(" -> marking branch input {} used", value);
+            log::trace!(" -> marking branch input {value} used");
             changed |= mark_used(used, *value);
         }
         Terminator::Return { values } => {
             for &value in values {
-                log::trace!(" -> marking return value {} used", value);
+                log::trace!(" -> marking return value {value} used");
                 changed |= mark_used(used, value);
             }
         }
@@ -87,7 +84,7 @@ fn scan_block(func: &FunctionBody, block: Block, used: &mut FxHashSet<Value>) ->
             }
             ValueDef::PickOutput(value, ..) => {
                 if used.contains(&inst) {
-                    log::trace!(" -> marking pick-output src {} used", value);
+                    log::trace!(" -> marking pick-output src {value} used");
                     changed |= mark_used(used, *value);
                 }
             }
@@ -97,7 +94,7 @@ fn scan_block(func: &FunctionBody, block: Block, used: &mut FxHashSet<Value>) ->
                 }
                 if used.contains(&inst) {
                     for &arg in &func.arg_pool[*args] {
-                        log::trace!(" -> marking arg {} used from {}", arg, inst);
+                        log::trace!(" -> marking arg {arg} used from {inst}");
                         changed |= mark_used(used, arg);
                     }
                 }
@@ -118,7 +115,7 @@ pub(crate) fn run(func: &mut FunctionBody, cfg: &CFGInfo) {
     // unreachable block can branch to an unreachable block).
     for (block, block_def) in func.blocks.entries_mut() {
         if cfg.rpo_pos[block].is_none() {
-            log::trace!("removing unreachable block {}", block);
+            log::trace!("removing unreachable block {block}");
             block_def.insts.clear();
             block_def.params.clear();
             block_def.terminator = Terminator::Unreachable;
@@ -135,7 +132,7 @@ pub(crate) fn run(func: &mut FunctionBody, cfg: &CFGInfo) {
         for &block in cfg.rpo.values().rev() {
             changed |= scan_block(func, block, &mut used);
         }
-        log::trace!("done with all blocks; changed = {}", changed);
+        log::trace!("done with all blocks; changed = {changed}");
         if !changed {
             break;
         }

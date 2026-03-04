@@ -43,8 +43,8 @@ impl std::convert::TryFrom<waffle::Operator> for WasmVal {
     type Error = ();
     fn try_from(op: waffle::Operator) -> Result<Self, Self::Error> {
         match op {
-            waffle::Operator::I32Const { value } => Ok(WasmVal::I32(value as u32)),
-            waffle::Operator::I64Const { value } => Ok(WasmVal::I64(value as u64)),
+            waffle::Operator::I32Const { value } => Ok(WasmVal::I32(value)),
+            waffle::Operator::I64Const { value } => Ok(WasmVal::I64(value)),
             waffle::Operator::F32Const { value } => Ok(WasmVal::F32(value)),
             waffle::Operator::F64Const { value } => Ok(WasmVal::F64(value)),
             _ => Err(()),

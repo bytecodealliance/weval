@@ -69,7 +69,7 @@ impl Contexts {
             Entry::Occupied(o) => *o.get(),
             Entry::Vacant(v) => {
                 let id = self.contexts.push((parent, elem.clone()));
-                log::trace!("create context: {}: parent {} leaf {:?}", id, parent, elem);
+                log::trace!("create context: {id}: parent {parent} leaf {elem:?}");
                 *v.insert(id)
             }
         }
@@ -175,7 +175,7 @@ impl RegValue {
                 abs: AbstractValue::meet(abs, abs1),
             },
             _ => {
-                panic!("Values {:?} and {:?} meeting to Conflict", a, b);
+                panic!("Values {a:?} and {b:?} meeting to Conflict");
             }
         }
     }
@@ -242,7 +242,7 @@ fn map_meet_with<
                 *val = bot.clone();
                 changed |= old != *val;
             } else {
-                to_remove.push(k.clone());
+                to_remove.push(*k);
                 changed = true;
             }
         }
