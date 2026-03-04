@@ -113,6 +113,9 @@ fn maybe_mem_image(mem: &MemoryData, snapshot_bytes: Option<&[u8]>) -> Option<Me
     Some(MemImage { image })
 }
 
+/// Both snapshot_memories and remove_excess_segments are adapted from wizer,
+/// see https://github.com/bytecodealliance/wasmtime/blob/8adf03d4557acaa8384ec084946614d3f87c39ff/crates/wizer/src/snapshot.rs#L120
+///
 /// Find all non-zero regions across all memories, merge nearby segments, and
 /// return the final set of memory segments with data extracted. Mirrors wizer's
 /// `snapshot_memories` function.
@@ -159,7 +162,8 @@ fn snapshot_memories(im: &Image) -> Vec<(Memory, MemorySegment)> {
     }
 
     // Sort data segments to enforce determinism in the face of the
-    // parallelism above.
+    // parallelism above. It is also load-bearing for multimemory, it groups all
+    // segments for one memory together for the merging and extraction below.
     data_segments.sort_by_key(|s| (s.memory_index, s.range.start));
 
     // Merge any contiguous segments (caused by spanning a Wasm page boundary,
