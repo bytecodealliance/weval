@@ -8,13 +8,13 @@
   },
   "dependencies": {
     "@napi-rs/lzma": "^1.1.2",
-    "decompress": "^4.2.1",
-    "decompress-tar": "^4.1.1",
-    "decompress-unzip": "^4.0.1"
+    "@xhmikosr/decompress": "^11.1.3",
+    "@xhmikosr/decompress-tar": "^9.0.1",
+    "@xhmikosr/decompress-unzip": "^8.1.1"
   },
   "main": "index.js",
   "engines": {
-    "node": ">=16"
+    "node": ">=20"
   },
   "license": "Apache-2.0",
   "repository": {

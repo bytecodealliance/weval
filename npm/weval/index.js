@@ -5,9 +5,9 @@ import { platform, arch } from "node:process";
 import { mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 
-import decompress from "decompress";
-import decompressUnzip from "decompress-unzip";
-import decompressTar from "decompress-tar";
+import decompress from "@xhmikosr/decompress";
+import decompressUnzip from "@xhmikosr/decompress-unzip";
+import decompressTar from "@xhmikosr/decompress-tar";
 import xz from "@napi-rs/lzma/xz";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
