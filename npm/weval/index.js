@@ -2,17 +2,45 @@ import { endianness } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join, parse } from "node:path";
 import { platform, arch } from "node:process";
-import { mkdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { mkdir, chmod } from "node:fs/promises";
+import { existsSync, createWriteStream } from "node:fs";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
-import decompress from "decompress";
-import decompressUnzip from "decompress-unzip";
-import decompressTar from "decompress-tar";
+import * as tar from "tar";
+import { unzipSync } from "fflate";
 import xz from "@napi-rs/lzma/xz";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const TAG = "v0.4.1";
+
+async function decompressArchive(buf, assetSuffix, exeDir, exeName) {
+  if (assetSuffix === "tar.xz") {
+    const tarBuf = await xz.decompress(buf);
+    await pipeline(
+      Readable.from(Buffer.from(tarBuf)),
+      tar.extract({
+        cwd: exeDir,
+        strip: 1,
+        filter: (filePath) => parse(filePath).base === exeName,
+      })
+    );
+  } else {
+    const entries = unzipSync(buf);
+    const match = Object.entries(entries).find(
+      ([name]) => parse(name).base === exeName
+    );
+    if (!match) {
+      console.error(`Could not find ${exeName} inside the downloaded archive`);
+      process.exit(1);
+    }
+    const [, content] = match;
+    const exe = join(exeDir, exeName);
+    await pipeline(Readable.from(Buffer.from(content)), createWriteStream(exe));
+    await chmod(exe, 0o755);
+  }
+}
 
 async function getWeval() {
   const knownPlatforms = {
@@ -37,9 +65,10 @@ async function getWeval() {
   const platformName = getPlatformName();
   const assetSuffix = platform == "win32" ? "zip" : "tar.xz";
   const exeSuffix = platform == "win32" ? ".exe" : "";
+  const exeName = `weval${exeSuffix}`;
 
   const exeDir = join(__dirname, platformName);
-  const exe = join(exeDir, `weval${exeSuffix}`);
+  const exe = join(exeDir, exeName);
 
   // If we already have the executable installed, then return it
   if (existsSync(exe)) {
@@ -53,18 +82,9 @@ async function getWeval() {
     console.error(`Error downloading ${downloadUrl}`);
     process.exit(1);
   }
-  let buf = await data.arrayBuffer();
+  const buf = new Uint8Array(await data.arrayBuffer());
 
-  if (downloadUrl.endsWith(".xz")) {
-    buf = await xz.decompress(new Uint8Array(buf));
-  }
-  await decompress(Buffer.from(buf), exeDir, {
-    // Remove the leading directory from the extracted file.
-    strip: 1,
-    plugins: [decompressUnzip(), decompressTar()],
-    // Only extract the binary file and nothing else
-    filter: (file) => parse(file.path).base === `weval${exeSuffix}`,
-  });
+  await decompressArchive(buf, assetSuffix, exeDir, exeName);
 
   return exe;
 }
