@@ -8,6 +8,8 @@ defaults:
   run:
     shell: bash
 
+permissions: {}
+
 # Cancel any in-flight jobs for the same PR/branch so there's only one active
 # at a time
 concurrency:
@@ -17,6 +19,9 @@ concurrency:
 jobs:
   build:
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      actions: write
     strategy:
       matrix:
         include:
@@ -61,9 +66,15 @@ jobs:
       with:
         name: bins-${{ matrix.build }}
         path: dist
+
   publish:
-    needs: [build]
+    needs:
+      - build
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v2
       # Download all the artifacts that we'll be publishing. Should keep an eye on
@@ -104,16 +115,32 @@ jobs:
           echo TAG=$name >> $GITHUB_ENV
         id: tagname
 
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: '>=24'
+          registry-url: 'https://registry.npmjs.org'
+
       # ... and if this was an actual push (tag or `main`) then we publish a
       # new release. This'll automatically publish a tag release or update `dev`
       # with this `sha`. Note that `continue-on-error` is set here so if this hits
       # a bug we can go back and fetch and upload the release ourselves.
       - run: cd .github/actions/github-release && npm install --production
+
       - name: Publish Release
         uses: ./.github/actions/github-release
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        continue-on-error: true
         with:
           files: "dist/*"
           token: ${{ secrets.GITHUB_TOKEN }}
           name: ${{ steps.tagname.outputs.val }}
-        continue-on-error: true
+
+      - name: Update npm packages to latest version
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        working-directory: ./npm/weval
+        run: npm install && node update.js "${{ steps.tagname.outputs.val }}"
+
+      - name: Publish npm package
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        working-directory: ./npm/weval
+        run: npm publish --provenance
