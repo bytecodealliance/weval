@@ -1,12 +1,13 @@
 #![allow(dead_code, reason = "")]
 
+use component::WasiOpts;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-use wasmtime::*;
-use wasmtime_wasi::p1;
+use wasmparser::{Encoding, Parser, Payload};
 
 mod cache;
+mod component;
 mod constant_offsets;
 mod dce;
 mod directive;
@@ -16,11 +17,10 @@ mod filter;
 mod image;
 mod intrinsics;
 mod liveness;
+mod module;
 mod state;
 mod stats;
 mod value;
-
-const STUBS: &'static str = include_str!("../lib/weval-stubs.wat");
 
 #[derive(Clone, Debug, StructOpt)]
 pub enum Command {
@@ -45,6 +45,22 @@ pub enum Command {
         /// Name of the Wizer initialization function to call.
         #[structopt(long = "init-func", default_value = "wizer-initialize")]
         init_func: String,
+
+        /// Keep the Wizer initialization function exported after wizening.
+        #[structopt(long = "keep-init-func")]
+        keep_init_func: bool,
+
+        /// Allow WASI Preview 2 imports while wizening components.
+        #[structopt(long = "allow-wasip2")]
+        allow_wasip2: bool,
+
+        /// Allow WASI Preview 3 imports while wizening components.
+        #[structopt(long = "allow-wasip3")]
+        allow_wasip3: bool,
+
+        /// Allow WASI HTTP imports while wizening components.
+        #[structopt(long = "allow-wasi-http")]
+        allow_wasi_http: bool,
 
         /// Cache file to use.
         #[structopt(long = "cache")]
@@ -79,6 +95,10 @@ fn main() -> anyhow::Result<()> {
             wizen,
             preopens,
             init_func,
+            keep_init_func,
+            allow_wasip2,
+            allow_wasip3,
+            allow_wasi_http,
             cache,
             cache_ro,
             show_stats,
@@ -90,37 +110,37 @@ fn main() -> anyhow::Result<()> {
             wizen,
             preopens,
             init_func,
+            keep_init_func,
             cache,
             cache_ro,
             show_stats,
             output_ir,
             verbose,
+            WasiOpts {
+                p2: allow_wasip2,
+                p3: allow_wasip3,
+                http: allow_wasi_http,
+            },
         ),
     }
 }
 
-fn wizen(raw_bytes: Vec<u8>, preopens: Vec<PathBuf>, init_func: String) -> anyhow::Result<Vec<u8>> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-
-    runtime.block_on(wizen_impl(raw_bytes, preopens, init_func))
+fn wasm_encoding(wasm: &[u8]) -> anyhow::Result<Encoding> {
+    for payload in Parser::new(0).parse_all(wasm) {
+        if let Payload::Version { encoding, .. } = payload? {
+            return Ok(encoding);
+        }
+    }
+    anyhow::bail!("input is not a wasm module or component")
 }
 
-async fn wizen_impl(
-    raw_bytes: Vec<u8>,
-    preopens: Vec<PathBuf>,
-    init_func: String,
-) -> anyhow::Result<Vec<u8>> {
-    let mut config = Config::new();
-    config.async_support(true);
-    config.wasm_bulk_memory(true);
-    let engine = Engine::new(&config)?;
-
-    let mut wasi_ctx = wasmtime_wasi::WasiCtxBuilder::new();
+pub(crate) fn configure_wasi(
+    wasi_ctx: &mut wasmtime_wasi::WasiCtxBuilder,
+    preopens: &[PathBuf],
+) -> anyhow::Result<()> {
     wasi_ctx.inherit_stdio();
     wasi_ctx.inherit_env();
-    for preopen in &preopens {
+    for preopen in preopens {
         wasi_ctx.preopened_dir(
             preopen,
             preopen.to_str().unwrap_or("."),
@@ -128,157 +148,103 @@ async fn wizen_impl(
             wasmtime_wasi::FilePerms::all(),
         )?;
     }
+    Ok(())
+}
 
-    let mut store = Store::new(&engine, wasi_ctx.build_p1());
-    let mut linker = Linker::new(&engine);
-    p1::add_to_linker_async(&mut linker, |cx| cx)?;
+fn wizen(
+    wasm_bytes: Vec<u8>,
+    preopens: Vec<PathBuf>,
+    init_func: String,
+    keep_init_func: bool,
+    wasi: WasiOpts,
+    encoding: Encoding,
+) -> anyhow::Result<Vec<u8>> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
 
-    // Preload the weval stubs module.
-    let stubs_module = Module::new(&engine, STUBS)?;
-    let stubs_instance = linker.instantiate_async(&mut store, &stubs_module).await?;
-    linker.instance(&mut store, "weval", stubs_instance)?;
-
-    let mut wizer = wasmtime_wizer::Wizer::new();
-    wizer.init_func(&init_func);
-    wizer.func_rename("_start", "wizer.resume");
-
-    wizer
-        .run(&mut store, &raw_bytes, async |store, module| {
-            linker.define_unknown_imports_as_traps(module)?;
-            linker.instantiate_async(store, module).await
-        })
-        .await
+    runtime.block_on(async {
+        match encoding {
+            Encoding::Module => {
+                module::wizen(wasm_bytes, preopens, init_func, keep_init_func).await
+            }
+            Encoding::Component => {
+                component::wizen(wasm_bytes, preopens, init_func, keep_init_func, wasi).await
+            }
+        }
+    })
 }
 
 /// Weval a wasm.
-pub fn weval(
+fn weval(
     input_module: PathBuf,
     output_module: PathBuf,
     do_wizen: bool,
     preopens: Vec<PathBuf>,
     init_func: String,
+    keep_init_func: bool,
     cache: Option<PathBuf>,
     cache_ro: Option<PathBuf>,
     show_stats: bool,
     output_ir: Option<PathBuf>,
     verbose: bool,
+    wasi: WasiOpts,
 ) -> anyhow::Result<()> {
     if verbose {
         eprintln!("Reading raw module bytes...");
     }
+
     let raw_bytes = std::fs::read(&input_module)?;
 
     // Compute a hash of the original module so we can cache results
     // keyed on that hash (and weval request arg strings).
     let input_hash = cache::compute_hash(&raw_bytes[..]);
+    let input_encoding = wasm_encoding(&raw_bytes)?;
 
-    // Open the cache and read-only cache, if any.
-    let cache = cache::Cache::open(
-        cache.as_ref().map(|p| p.as_path()),
-        cache_ro.as_ref().map(|p| p.as_path()),
-        input_hash,
-    )?;
-
-    // Optionally, Wizen the module first.
-    let module_bytes = if do_wizen {
+    // Optionally, Wizen the module or component first.
+    let wasm_bytes = if do_wizen {
         if verbose {
-            eprintln!("Wizening the module with its input...");
+            let encoding = match input_encoding {
+                Encoding::Module => "module",
+                Encoding::Component => "component",
+            };
+            eprintln!("Wizening the {encoding} with its input...");
         }
-        wizen(raw_bytes, preopens, init_func)?
+        wizen(
+            raw_bytes,
+            preopens,
+            init_func,
+            keep_init_func,
+            wasi,
+            input_encoding,
+        )?
     } else {
         raw_bytes
     };
 
-    // Load module.
-    if verbose {
-        eprintln!("Parsing the module...");
-    }
-    let mut frontend_opts = waffle::FrontendOptions::default();
-    frontend_opts.debug = true;
-    let module = waffle::Module::from_wasm_bytes(&module_bytes[..], &frontend_opts)?;
-
-    // Build module image.
-    if verbose {
-        eprintln!("Building memory image...");
-    }
-    let mut im = image::build_image(&module, None)?;
-
-    // Collect directives.
-    let directives = directive::collect(&module, &mut im)?;
-    log::debug!("Directives: {directives:?}");
-
-    // Make sure IR output directory exists.
-    if let Some(dir) = &output_ir {
-        std::fs::create_dir_all(dir)?;
-    }
-
-    // Partially evaluate.
-    if verbose {
-        eprintln!("Specializing functions...");
-    }
-    let progress = if verbose {
-        Some(indicatif::ProgressBar::new(0))
-    } else {
-        None
+    let bytes = match input_encoding {
+        Encoding::Module => module::weval(
+            &wasm_bytes,
+            module::Opts {
+                cache,
+                cache_ro,
+                module_hash: input_hash,
+                show_stats,
+                output_ir,
+                verbose,
+            },
+        )?,
+        Encoding::Component => component::weval(
+            &wasm_bytes,
+            component::Opts {
+                cache,
+                cache_ro,
+                show_stats,
+                output_ir,
+                verbose,
+            },
+        )?,
     };
-    let mut result = eval::partially_evaluate(
-        module,
-        &mut im,
-        &directives[..],
-        progress,
-        output_ir,
-        &cache,
-    )?;
-
-    // Update memories in module.
-    if verbose {
-        eprintln!("Updatimg memory image...");
-    }
-    image::update(&mut result.module, &im);
-
-    log::debug!("Final module:\n{}", result.module.display());
-
-    if show_stats {
-        for stats in result.stats {
-            eprintln!(
-                "Function {}: {} blocks, {} insts)",
-                stats.generic, stats.generic_blocks, stats.generic_insts,
-            );
-            eprintln!(
-                "   specialized ({} times): {} blocks, {} insts",
-                stats.specializations, stats.specialized_blocks, stats.specialized_insts
-            );
-            eprintln!(
-                "   virtstack: {} reads ({} mem), {} writes ({} mem)",
-                stats.virtstack_reads,
-                stats.virtstack_reads_mem,
-                stats.virtstack_writes,
-                stats.virtstack_writes_mem
-            );
-            eprintln!(
-                "   locals: {} reads ({} mem), {} writes ({} mem)",
-                stats.local_reads,
-                stats.local_reads_mem,
-                stats.local_writes,
-                stats.local_writes_mem
-            );
-            eprintln!(
-                "   live values at block starts: {} ({} per block)",
-                stats.live_value_at_block_start,
-                (stats.live_value_at_block_start as f64) / (stats.specialized_blocks as f64),
-            );
-        }
-    }
-
-    if verbose {
-        eprintln!("Serializing back to binary form...");
-    }
-    let bytes = result.module.to_wasm_bytes()?;
-
-    if verbose {
-        eprintln!("Performing post-filter pass to remove intrinsics...");
-    }
-    let bytes = filter::filter(&bytes[..])?;
 
     if verbose {
         eprintln!("Writing output file...");

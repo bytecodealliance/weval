@@ -1,0 +1,6 @@
+package weval:simple;
+
+world component {
+  export initialize: func();
+  export run: func() -> s32;
+}

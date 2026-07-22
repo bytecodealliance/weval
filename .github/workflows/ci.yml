@@ -14,7 +14,9 @@ jobs:
         - build: x86_64-linux
           os: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+    - run: rustup update stable --no-self-update
+    - run: rustup default stable
     - name: Build
       run: cargo build --verbose
     - name: Run tests
@@ -25,7 +27,7 @@ jobs:
   rustfmt:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
     - run: rustup update stable --no-self-update
     - run: rustup default stable
     - run: rustup component add rustfmt
@@ -34,22 +36,32 @@ jobs:
   smoke-test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+    - run: rustup update stable --no-self-update
+    - run: rustup default stable
     - name: Download and install wasi-sdk
       run: |
         cd /opt
-        wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-30/wasi-sdk-30.0-x86_64-linux.tar.gz
-        tar zxvf wasi-sdk-30.0-x86_64-linux.tar.gz
-        ln -s wasi-sdk-30.0-x86_64-linux wasi-sdk
-    - name: Download and install wasmtime
-      run: |
-        cd /opt
-        wget https://github.com/bytecodealliance/wasmtime/releases/download/v41.0.3/wasmtime-v41.0.3-x86_64-linux.tar.xz
-        tar Jxvf wasmtime-v41.0.3-x86_64-linux.tar.xz
-        ln -s `pwd`/wasmtime-v41.0.3-x86_64-linux/wasmtime /usr/local/bin/
+        wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-33/wasi-sdk-33.0-x86_64-linux.tar.gz
+        tar zxvf wasi-sdk-33.0-x86_64-linux.tar.gz
+        ln -s wasi-sdk-33.0-x86_64-linux wasi-sdk
+    - name: Setup wasmtime
+      uses: bytecodealliance/actions/wasmtime/setup@9152e710e9f7182e4c29ad218e4f335a7b203613 # v1
+      with:
+        version: "46.0.1"
+    - name: Setup wasm-tools
+      uses: bytecodealliance/actions/wasm-tools/setup@9152e710e9f7182e4c29ad218e4f335a7b203613 # v1
+      with:
+        version: "1.251.0"
+    - name: Setup wit-bindgen
+      uses: bytecodealliance/actions/wit-bindgen/setup@9152e710e9f7182e4c29ad218e4f335a7b203613 # v1
+      with:
+        version: "0.58.0"
     - name: Build
       run: cargo build --release
     - name: Build and run base 'simple' test
       run: make -C tests/simple run-base
     - name: Build and run wevaled 'simple' test
       run: make -C tests/simple run-wevaled
+    - name: Build and validate component smoke tests
+      run: make -C tests/simple run-component

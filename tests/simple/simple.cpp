@@ -1,10 +1,17 @@
 #include <weval.h>
+#ifndef WEVAL_COMPONENT_TEST
 #include <wizer.h>
+#else
+#include "component_cpp.h"
+#endif
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
 
+#ifndef WEVAL_COMPONENT_TEST
 WIZER_DEFAULT_INIT();
+#endif
+
 WEVAL_DEFINE_GLOBALS();
 
 enum Opcode {
@@ -201,6 +208,7 @@ struct Func {
     }
 };
 
+#ifndef WEVAL_COMPONENT_TEST
 Func prog_func(prog, sizeof(prog)/sizeof(Inst));
 
 int main(int argc, char** argv) {
@@ -209,3 +217,26 @@ int main(int argc, char** argv) {
     assert(kExpectedSteps == steps);
     fflush(stdout);
 }
+
+#else
+static Func* prog_func = nullptr;
+
+namespace exports::component {
+
+void Initialize() {
+    prog_func = new Func(prog, sizeof(prog)/sizeof(Inst));
+    assert(prog_func);
+}
+
+int32_t Run() {
+    assert(prog_func);
+    State* state = (State*)calloc(sizeof(State), 1);
+    uint32_t steps = prog_func->invoke(state);
+    ::free(state);
+    assert(weval_is_wevaled);
+    assert(steps == kExpectedSteps);
+    return 0;
+}
+
+}  // namespace exports::component
+#endif
