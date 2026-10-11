@@ -2963,6 +2963,7 @@ dependencies = [
  "wasmtime-wasi",
  "wasmtime-wasi-http",
  "wasmtime-wizer",
+ "wat",
 ]
 
 [[package]]
