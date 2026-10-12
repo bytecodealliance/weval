@@ -29,6 +29,9 @@ sha2 = "0.10.8"
 sqlite = "0.36.0"
 serde = { version = "1.0.197", features = ["derive"] }
 
+[dev-dependencies]
+wat = "1.245.1"
+
 [lints.clippy]
 # The default set of lints in Clippy is viewed as "too noisy" right now so
 # they're all turned off by default. Selective lints are then enabled below as

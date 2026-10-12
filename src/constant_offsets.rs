@@ -3,7 +3,7 @@
 //! these offsets into loads/stores where possible.
 
 use fxhash::{FxHashMap, FxHashSet};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use waffle::{
     cfg::CFGInfo, entity::PerEntity, pool::ListRef, Block, FunctionBody, Operator, Terminator,
     Type, Value, ValueDef,
@@ -46,6 +46,10 @@ pub fn run(func: &mut FunctionBody, cfg: &CFGInfo) {
     // Compute a fixpoint analysis: which values are some original SSA
     // value plus an offset?
     let mut values: PerEntity<Value, AbsValue> = PerEntity::default();
+    // A value may be used across a join without being a block parameter
+    // there. Revisit its users when its abstract value changes, even if
+    // neither predecessor dominates the join.
+    let mut value_dep_blocks: FxHashMap<Value, BTreeSet<Block>> = FxHashMap::default();
 
     let mut workqueue: VecDeque<Block> = VecDeque::new();
     let mut workqueue_set: FxHashSet<Block> = FxHashSet::default();
@@ -61,9 +65,21 @@ pub fn run(func: &mut FunctionBody, cfg: &CFGInfo) {
     while let Some(block) = workqueue.pop_front() {
         log::trace!("processing {block}");
         workqueue_set.remove(&block);
+        if visited.insert(block) {
+            for &inst in &func.blocks[block].insts {
+                func.values[inst].visit_uses(&func.arg_pool, |value| {
+                    value_dep_blocks.entry(value).or_default().insert(block);
+                });
+            }
+            func.blocks[block].terminator.visit_uses(|value| {
+                value_dep_blocks.entry(value).or_default().insert(block);
+            });
+        }
+        let mut changed_values = vec![];
 
         for &inst in &func.blocks[block].insts {
             log::trace!("block {} value {}: {:?}", block, inst, func.values[inst]);
+            let old = values[inst];
             match &func.values[inst] {
                 ValueDef::BlockParam(..) => {
                     unreachable!();
@@ -135,29 +151,43 @@ pub fn run(func: &mut FunctionBody, cfg: &CFGInfo) {
                 }
             }
             log::trace!(" -> values[{}] = {:?}", inst, values[inst]);
+            if old != values[inst] {
+                changed_values.push(inst);
+            }
         }
 
         func.blocks[block].terminator.visit_targets(|target| {
-            let mut changed = false;
             let succ_params = &func.blocks[target.block].params;
             for (&arg, &(_, blockparam)) in target.args.iter().zip(succ_params.iter()) {
                 let new = AbsValue::meet(values[arg], values[blockparam]);
-                log::trace!(" -> block {} target {}: arg {} to blockparam {}: value {:?} -> {:?}",
-                            block, target.block, arg, blockparam, values[blockparam], new);
-                changed |= new != values[blockparam];
+                log::trace!(
+                    " -> block {} target {}: arg {} to blockparam {}: value {:?} -> {:?}",
+                    block,
+                    target.block,
+                    arg,
+                    blockparam,
+                    values[blockparam],
+                    new
+                );
+                if new != values[blockparam] {
+                    changed_values.push(blockparam);
+                }
                 values[blockparam] = new;
             }
 
-            if changed ||
-                visited.insert(target.block) ||
-                (block != target.block && cfg.dominates(block, target.block)) {
-                log::trace!(" -> at least one blockparam changed, or we dominate target block; enqueuing {}",
-                            target.block);
-                if workqueue_set.insert(target.block) {
-                    workqueue.push_back(target.block);
-                }
+            if !visited.contains(&target.block) && workqueue_set.insert(target.block) {
+                workqueue.push_back(target.block);
             }
         });
+        for value in changed_values {
+            if let Some(deps) = value_dep_blocks.get(&value) {
+                for &block in deps {
+                    if workqueue_set.insert(block) {
+                        workqueue.push_back(block);
+                    }
+                }
+            }
+        }
     }
 
     // Constant-fold conditional branches.
@@ -341,5 +371,52 @@ pub fn run(func: &mut FunctionBody, cfg: &CFGInfo) {
             }
         }
         block_def.insts = new_insts;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_loop_carried_offset_after_diamond() {
+        let bytes = wat::parse_str(include_str!("../tests/constant-offsets.wat")).unwrap();
+        let mut module = waffle::Module::from_wasm_bytes(&bytes, &Default::default()).unwrap();
+        module.expand_all_funcs().unwrap();
+        for (_, decl) in module.funcs.entries_mut() {
+            if let waffle::FuncDecl::Body(_, _, body) = decl {
+                body.optimize(&waffle::OptOptions {
+                    gvn: false,
+                    cprop: false,
+                    redundant_blockparams: true,
+                });
+                let cfg = CFGInfo::new(body);
+                run(body, &cfg);
+            }
+        }
+        let optimized = module.to_wasm_bytes().unwrap();
+        let engine = wasmtime::Engine::default();
+        for (name, bytes) in [("original", &bytes), ("optimized", &optimized)] {
+            let module = wasmtime::Module::new(&engine, bytes).unwrap();
+            let mut store = wasmtime::Store::new(&engine, ());
+            let instance = wasmtime::Instance::new(&mut store, &module, &[]).unwrap();
+            let compute = instance
+                .get_typed_func::<(i32, i32, i32), i32>(&mut store, "compute")
+                .unwrap();
+            for base in [4096i32, 991, 0, i32::MIN, i32::MAX] {
+                for count in [0, 1, 2, 7, 32] {
+                    for branch in [0, 1] {
+                        let expected = base
+                            .wrapping_sub(16 + 8 * (count + 1))
+                            .wrapping_add(if branch == 0 { 29 } else { 17 });
+                        assert_eq!(
+                            compute.call(&mut store, (base, count, branch)).unwrap(),
+                            expected,
+                            "{name}: base={base}, count={count}, branch={branch}"
+                        );
+                    }
+                }
+            }
+        }
     }
 }
