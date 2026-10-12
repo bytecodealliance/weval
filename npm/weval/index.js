@@ -13,7 +13,7 @@ import xz from "@napi-rs/lzma/xz";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const TAG = "v0.5.0";
+const TAG = "v0.5.1";
 
 async function decompressArchive(buf, assetSuffix, exeDir, exeName) {
   if (assetSuffix === "tar.xz") {
